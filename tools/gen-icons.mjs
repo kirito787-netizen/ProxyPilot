@@ -1,6 +1,6 @@
-// Generates ProxyPilot's PNG icons with no external dependencies.
-// A white globe on a blue gradient rounded square, rendered with 4x
-// supersampling for clean antialiased edges.
+// Generates ProxyPilot desktop icons: a rounded dark tile with an amber
+// "route" stroke (two nodes joined by a detour), rendered at 4x and
+// box-downsampled for clean edges.
 
 import { deflateSync } from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -10,163 +10,139 @@ import { dirname, join } from 'node:path';
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'icons');
 mkdirSync(OUT, { recursive: true });
 
-// Neutral charcoal — matches the monospace "tool" aesthetic (no AI blue).
-const ACCENT_LIGHT = [0x2e, 0x35, 0x40];
-const ACCENT_DARK = [0x1a, 0x1f, 0x27];
+const TOP = [0x24, 0x2b, 0x3e];
+const BOTTOM = [0x12, 0x16, 0x20];
+const ROUTE = [0xff, 0xb4, 0x3d];
 
-const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
-const lerp = (a, b, t) => a + (b - a) * t;
-// Soft 1px coverage from a signed distance (negative = inside).
-const cov = (signed) => clamp01(0.5 - signed);
-// Coverage of a stroke band given absolute distance to its centerline.
-const band = (absDist, halfWidth) => clamp01(halfWidth - absDist + 0.5);
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const inside = (distance) => clamp01(0.5 - distance);
+const stroke = (distance, half) => clamp01(half - Math.abs(distance) + 0.5);
 
-function renderRGBA(S) {
-  const SS = 4;
-  const N = S * SS;
-  const buf = Buffer.alloc(N * N * 4, 0);
-
-  const c = N / 2;
-  const half = N / 2;
-  const corner = N * 0.24;
-
-  const R = N * 0.3; // globe radius
-  const w = Math.max(N * 0.06, 1); // stroke width
-  const hw = w * 0.42; // half stroke for thin lines
-
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const px = x + 0.5 - c;
-      const py = y + 0.5 - c;
-
-      // Rounded-square background mask.
-      const qx = Math.abs(px) - (half - corner);
-      const qy = Math.abs(py) - (half - corner);
-      const outside =
-        Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - corner;
-      const bgA = cov(outside);
-      if (bgA <= 0) continue;
-
-      // Diagonal gradient.
-      const t = clamp01((x + y) / (2 * N));
-      const br = lerp(ACCENT_LIGHT[0], ACCENT_DARK[0], t);
-      const bg = lerp(ACCENT_LIGHT[1], ACCENT_DARK[1], t);
-      const bb = lerp(ACCENT_LIGHT[2], ACCENT_DARK[2], t);
-
-      // Globe (white strokes).
-      const d = Math.hypot(px, py);
-      const insideMask = clamp01(R - d + 0.5); // clip lines to the disc
-      const ring = band(Math.abs(d - R), w / 2);
-      const equator = band(Math.abs(py), hw) * insideMask;
-      const meridian = band(Math.abs(px), hw) * insideMask;
-      // Vertical ellipse → the two curved side meridians.
-      const rx = R * 0.55;
-      const ry = R;
-      const f = Math.sqrt((px * px) / (rx * rx) + (py * py) / (ry * ry));
-      const ellipse = band(Math.abs(f - 1) * rx, hw) * insideMask;
-
-      const fg = Math.min(1, Math.max(ring, equator, meridian, ellipse)) * 0.96;
-
-      const r = lerp(br, 255, fg);
-      const g = lerp(bg, 255, fg);
-      const b = lerp(bb, 255, fg);
-
-      const i = (y * N + x) * 4;
-      buf[i] = r;
-      buf[i + 1] = g;
-      buf[i + 2] = b;
-      buf[i + 3] = bgA * 255;
-    }
-  }
-
-  return downsample(buf, N, SS);
+function distanceToSegment(px, py, from, to) {
+  const vx = to.x - from.x;
+  const vy = to.y - from.y;
+  const wx = px - from.x;
+  const wy = py - from.y;
+  const t = clamp01((wx * vx + wy * vy) / (vx * vx + vy * vy));
+  return Math.hypot(wx - t * vx, wy - t * vy);
 }
 
-// Box-downsample with premultiplied alpha to avoid dark edge fringes.
-function downsample(src, N, SS) {
-  const S = N / SS;
-  const out = Buffer.alloc(S * S * 4, 0);
-  for (let oy = 0; oy < S; oy++) {
-    for (let ox = 0; ox < S; ox++) {
-      let a = 0, pr = 0, pg = 0, pb = 0;
-      for (let dy = 0; dy < SS; dy++) {
-        for (let dx = 0; dx < SS; dx++) {
-          const i = ((oy * SS + dy) * N + (ox * SS + dx)) * 4;
-          const av = src[i + 3] / 255;
-          a += av;
-          pr += src[i] * av;
-          pg += src[i + 1] * av;
-          pb += src[i + 2] * av;
+function shadeAt(x, y, size) {
+  const px = x + 0.5 - size / 2;
+  const py = y + 0.5 - size / 2;
+  const half = size / 2;
+  const corner = size * 0.22;
+  const qx = Math.abs(px) - (half - corner);
+  const qy = Math.abs(py) - (half - corner);
+  const tile = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - corner;
+  const nodeA = { x: -size * 0.26, y: size * 0.3, r: size * 0.09 };
+  const nodeB = { x: size * 0.27, y: -size * 0.31, r: size * 0.09 };
+  const elbow = { x: size * 0.14, y: size * 0.12 };
+  const lineWidth = Math.max(size * 0.055, 1) / 2;
+  const line = stroke(Math.min(
+    distanceToSegment(px, py, nodeA, elbow),
+    distanceToSegment(px, py, elbow, nodeB),
+  ), lineWidth);
+  const rings = stroke(Math.min(
+    Math.hypot(px - nodeA.x, py - nodeA.y) - nodeA.r,
+    Math.hypot(px - nodeB.x, py - nodeB.y) - nodeB.r,
+  ), lineWidth);
+  const tileAlpha = inside(tile);
+  const shade = clamp01((x + y) / (2 * size));
+  const base = TOP.map((top, index) => Math.round(top + (BOTTOM[index] - top) * shade));
+  const glow = Math.max(line, rings) * 0.95;
+  const mixed = base.map((channel, index) => Math.round(channel + (ROUTE[index] - channel) * glow));
+  return { tileAlpha, mixed };
+}
+
+function render(size) {
+  const scale = 4;
+  const big = size * scale;
+  const pixels = Buffer.alloc(big * big * 4, 0);
+  for (let y = 0; y < big; y++) {
+    for (let x = 0; x < big; x++) {
+      const { tileAlpha, mixed } = shadeAt(x, y, big);
+      if (tileAlpha <= 0) continue;
+      const index = (y * big + x) * 4;
+      pixels[index] = mixed[0];
+      pixels[index + 1] = mixed[1];
+      pixels[index + 2] = mixed[2];
+      pixels[index + 3] = Math.round(tileAlpha * 255);
+    }
+  }
+  const output = Buffer.alloc(size * size * 4, 0);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let red = 0; let green = 0; let blue = 0; let alpha = 0;
+      for (let dy = 0; dy < scale; dy++) {
+        for (let dx = 0; dx < scale; dx++) {
+          const index = ((y * scale + dy) * big + (x * scale + dx)) * 4;
+          const a = pixels[index + 3] / 255;
+          red += pixels[index] * a;
+          green += pixels[index + 1] * a;
+          blue += pixels[index + 2] * a;
+          alpha += a;
         }
       }
-      const n = SS * SS;
-      const oi = (oy * S + ox) * 4;
-      const outA = a / n;
-      if (a > 0) {
-        out[oi] = Math.round(pr / a);
-        out[oi + 1] = Math.round(pg / a);
-        out[oi + 2] = Math.round(pb / a);
+      const target = (y * size + x) * 4;
+      if (alpha > 0) {
+        output[target] = Math.round(red / alpha);
+        output[target + 1] = Math.round(green / alpha);
+        output[target + 2] = Math.round(blue / alpha);
       }
-      out[oi + 3] = Math.round(outA * 255);
+      output[target + 3] = Math.round((alpha / (scale * scale)) * 255);
     }
   }
-  return out;
+  return output;
 }
 
-// ---- minimal PNG encoder ----
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
+const crcTable = (() => {
+  const table = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
+    let value = n;
+    for (let bit = 0; bit < 8; bit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[n] = value >>> 0;
   }
-  return t;
+  return table;
 })();
 
-function crc32(buf) {
-  let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
+function crc32(buffer) {
+  let value = 0xffffffff;
+  for (const byte of buffer) value = crcTable[(value ^ byte) & 0xff] ^ (value >>> 8);
+  return (value ^ 0xffffffff) >>> 0;
 }
 
 function chunk(type, data) {
-  const typeBuf = Buffer.from(type, 'ascii');
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length, 0);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const typeBuffer = Buffer.from(type, 'ascii');
   const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
-  return Buffer.concat([len, typeBuf, data, crc]);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])));
+  return Buffer.concat([length, typeBuffer, data, crc]);
 }
 
-function encodePNG(rgba, S) {
-  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(S, 0);
-  ihdr.writeUInt32BE(S, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // RGBA
-  // 10,11,12 = 0 (compression, filter, interlace)
-
-  const stride = S * 4;
-  const raw = Buffer.alloc((stride + 1) * S);
-  for (let y = 0; y < S; y++) {
-    raw[y * (stride + 1)] = 0; // filter: none
-    rgba.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
+function encode(rgba, size) {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const stride = size * 4;
+  const raw = Buffer.alloc((stride + 1) * size);
+  for (let y = 0; y < size; y++) {
+    raw[y * (stride + 1)] = 0;
+    rgba.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
   }
-  const idat = deflateSync(raw, { level: 9 });
-
   return Buffer.concat([
-    sig,
-    chunk('IHDR', ihdr),
-    chunk('IDAT', idat),
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(raw, { level: 9 })),
     chunk('IEND', Buffer.alloc(0)),
   ]);
 }
 
-for (const size of [16, 32, 48, 128]) {
-  const rgba = renderRGBA(size);
-  const png = encodePNG(rgba, size);
-  writeFileSync(join(OUT, `icon${size}.png`), png);
-  console.log(`wrote icon${size}.png (${png.length} bytes)`);
+for (const size of [16, 32, 48, 128, 256]) {
+  const file = join(OUT, 'icon' + size + '.png');
+  writeFileSync(file, encode(render(size), size));
+  console.log('wrote ' + file);
 }

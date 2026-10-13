@@ -4,8 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { defaultOptions } from '../src/common/constants.js';
-import { buildAutoPac } from '../src/common/proxy.js';
+import { defaultOptions } from '../app/model.js';
+import { buildAutoPac } from '../app/pac.js';
 
 const chrome = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const pacPort = 17878;
@@ -31,7 +31,7 @@ const proxy = createServer((_req, res) => {
 
 const pac = createServer((_req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/x-ns-proxy-autoconfig', 'Cache-Control': 'no-store' });
-  const pac = buildAutoPac(testOptions.profiles['自动切换'], testOptions).replaceAll('127.0.0.1:7890', '127.0.0.1:' + proxyPort);
+  const pac = buildAutoPac(testOptions.profiles['自动切换'], testOptions).script.replaceAll('127.0.0.1:7890', '127.0.0.1:' + proxyPort);
   res.end(pac);
 });
 

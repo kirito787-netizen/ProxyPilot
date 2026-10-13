@@ -21,7 +21,7 @@ fs.rmSync(stage, { recursive: true, force: true });
 fs.rmSync(asarTemp, { force: true });
 fs.rmSync(dataDir, { recursive: true, force: true });
 fs.mkdirSync(stage, { recursive: true });
-for (const name of ['desktop', 'src', 'icons', 'package.json']) {
+for (const name of ['desktop', 'app', 'icons', 'package.json']) {
   fs.cpSync(path.join(root, name), path.join(stage, name), { recursive: true, force: true });
 }
 await createPackage(stage, asarTemp);
@@ -36,7 +36,7 @@ console.log(JSON.stringify({
   archive: fs.statSync(archive).size,
   entries: list.length,
   bridge: preload.includes("exposeInMainWorld('proxypilot'"),
-  safeMessage: preload.includes('sendMessage: async'),
+  safeMessage: preload.includes('call: async'),
   oneWayOptions: main.includes("ipcMain.on('proxypilot:open-options'"),
   ipcCloneAll: main.includes('return ipcClone(await handleMessage(message))'),
 }));
@@ -81,21 +81,21 @@ function evaluate(wsUrl, expression) {
 
 try {
   const pages = await targets();
-  const popup = pages.find((item) => (item.url || '').includes('popup.html'));
+  const popup = pages.find((item) => (item.url || '').includes('main.html'));
   if (!popup) throw new Error('main window not found: ' + JSON.stringify(pages.map((item) => item.url)));
   const bridgeProbe = await evaluate(popup.webSocketDebuggerUrl, "window.proxypilot ? 'bridge-ok' : 'bridge-missing'");
-  await evaluate(popup.webSocketDebuggerUrl, "window.proxypilot.runtime.openOptionsPage(); 'sent'");
+  await evaluate(popup.webSocketDebuggerUrl, "window.proxypilot.openOptions(); 'sent'");
   let options = null;
   for (let i = 0; i < 20; i++) {
     await sleep(400);
     const current = await targets();
-    options = current.find((item) => (item.url || '').includes('options.html'));
+    options = current.find((item) => (item.url || '').includes('settings.html'));
     if (options) break;
   }
   if (!options) throw new Error('options window did not open');
   await sleep(1200);
   const bodyText = await evaluate(options.webSocketDebuggerUrl, 'document.body.innerText');
-  const viewText = await evaluate(options.webSocketDebuggerUrl, "document.getElementById('view') ? document.getElementById('view').innerText : 'NO_VIEW'");
+  const viewText = await evaluate(options.webSocketDebuggerUrl, "document.getElementById('pane') ? document.getElementById('pane').innerText : 'NO_VIEW'");
   console.log(JSON.stringify({
     bridgeProbe,
     optionsOpened: true,

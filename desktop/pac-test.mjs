@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { defaultOptions } from '../src/common/constants.js';
-import { buildAutoPac, buildSystemPac } from '../src/common/proxy.js';
+import { defaultOptions } from '../app/model.js';
+import { buildAutoPac, buildSystemPac } from '../app/pac.js';
 
 const opts = defaultOptions();
-const autoPac = buildAutoPac(opts.profiles['自动切换'], opts);
+const autoPac = buildAutoPac(opts.profiles['自动切换'], opts).script;
 assert.ok(autoPac.includes('shExpMatch(host, \"*.google.com\")'));
 assert.ok(autoPac.includes('PROXY 127.0.0.1:7890'));
 assert.ok(autoPac.includes('return \"DIRECT\"'));

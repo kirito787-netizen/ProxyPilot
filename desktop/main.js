@@ -6,8 +6,8 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, defaultOptions } from '../src/common/constants.js';
-import { buildSystemPac } from '../src/common/proxy.js';
+import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, defaultOptions } from '../app/model.js';
+import { buildSystemPac } from '../app/pac.js';
 app.disableHardwareAcceleration();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -253,7 +253,7 @@ function openOptionsWindow() {
   optionsWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error('ProxyPilot options failed to load:', errorCode, errorDescription, validatedURL);
   });
-  optionsWindow.loadFile(path.join(__dirname, '..', 'src', 'options', 'options.html'))
+  optionsWindow.loadFile(path.join(__dirname, '..', 'app', 'settings.html'))
     .catch((error) => console.error('ProxyPilot options load failed:', error));
   optionsWindow.show();
   optionsWindow.focus();
@@ -329,6 +329,7 @@ ipcMain.handle('proxypilot:message', async (_event, message) => {
   }
 });
 ipcMain.on('proxypilot:open-options', () => openOptionsWindow());
+ipcMain.on('proxypilot:open-main', () => showWindow(mainWindow));
 
 if (isPrimaryInstance) app.whenReady().then(async () => {
   await loadOptions();
@@ -343,7 +344,7 @@ if (isPrimaryInstance) app.whenReady().then(async () => {
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level >= 2) console.error('ProxyPilot renderer:', message, sourceId + ':' + line);
   });
-  mainWindow.loadFile(path.join(__dirname, '..', 'src', 'popup', 'popup.html'));
+  mainWindow.loadFile(path.join(__dirname, '..', 'app', 'main.html'));
   mainWindow.on('close', (event) => { if (!isQuitting) { event.preventDefault(); mainWindow.hide(); } });
   createTray();
   try { await applyProfile(currentOptions.activeProfile, currentOptions); buildTrayMenuAndSet(); }

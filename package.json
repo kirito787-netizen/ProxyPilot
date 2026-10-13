@@ -1,7 +1,8 @@
 {
   "name": "proxypilot-desktop",
   "version": "1.0.0",
-  "description": "ProxyPilot desktop system PAC controller",
+  "description": "ProxyPilot — Windows desktop proxy switcher with per-domain system PAC routing",
+  "license": "MIT",
   "main": "desktop/main.js",
   "type": "module",
   "scripts": {
@@ -12,11 +13,12 @@
     "test:chrome": "node desktop/chrome-pac-test.mjs"
     ,"test:exe": "node tools/qa/exe-pac-e2e.mjs"
     ,"test:settings": "node tools/verify-settings.mjs"
+    ,"build:slim": "node tools/build-slim.mjs"
   },
   "build": {
     "appId": "local.proxypilot.desktop",
     "productName": "ProxyPilot",
-    "files": ["desktop/**/*", "src/**/*", "icons/**/*", "package.json"],
+    "files": ["app/**/*", "desktop/**/*", "icons/**/*", "package.json"],
     "win": { "target": "nsis", "signAndEditExecutable": false }
   },
   "devDependencies": {

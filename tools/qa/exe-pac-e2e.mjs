@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const root = process.cwd();
-const exe = path.join(root, 'dist', 'win-unpacked', 'ProxyPilot.exe');
+const exe = path.join(root, 'dist', 'ProxyPilot', 'ProxyPilot.exe');
 const chrome = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const dataDir = await mkdtemp(path.join(tmpdir(), 'proxypilot-exe-'));
 const logPath = path.join(tmpdir(), 'proxypilot-exe-e2e.log');
