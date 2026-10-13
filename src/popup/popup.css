@@ -1,0 +1,315 @@
+/* Terminal-variation popup. Ported from the Proxy Switcher design (A · Terminal). */
+
+.popup {
+  width: 400px;
+  height: 600px;
+  font-size: 12px;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.boot-state,
+.boot-error {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.boot-error strong { color: var(--bad); font-size: 14px; }
+.boot-error span { color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
+.boot-error button {
+  border: 1px solid var(--line-2);
+  padding: 6px 12px;
+  color: var(--fg-2);
+}
+.boot-error button:hover { border-color: var(--fg); color: var(--fg); }
+
+.t-popup {
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 21px,
+      var(--bg-2) 21px 22px
+    ),
+    var(--bg);
+}
+
+/* ---- header / prompt ---- */
+.t-head {
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.t-prompt {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.t-prompt b { color: var(--fg); font-weight: 600; }
+.t-prompt .blink {
+  display: inline-block;
+  width: 6px; height: 10px;
+  background: var(--fg);
+  animation: blink 1.1s steps(1) infinite;
+  vertical-align: -1px;
+}
+.t-prompt .ctl-group {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.t-ctl {
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 1px 5px 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.t-ctl:hover { color: var(--fg); border-color: var(--line-2); }
+@keyframes blink { 50% { opacity: 0; } }
+
+.t-card {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.t-card .row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+}
+.t-card .row .k { color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; }
+.t-card .row .v { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-card .row .v.big { font-size: 13px; font-weight: 600; }
+
+/* ---- current-site block ---- */
+.t-site {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px dashed var(--line-2);
+  background: var(--bg);
+}
+.t-site .site-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.t-site .site-host { color: var(--fg); text-transform: none; font-size: 11.5px; }
+.t-site .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.t-site .chip {
+  border: 1px solid var(--line);
+  padding: 2px 7px;
+  font-size: 10.5px;
+  color: var(--fg-2);
+}
+.t-site .chip:hover { border-color: var(--fg); color: var(--fg); }
+
+.t-section-label {
+  padding: 8px 12px 2px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.t-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 6px 6px;
+}
+
+/* ---- profile rows ---- */
+.t-row {
+  display: grid;
+  grid-template-columns: 14px 22px 1fr 40px 16px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+.t-row:hover { background: var(--bg-2); }
+.t-row.active {
+  background: var(--bg-3);
+  border-left-color: var(--fg);
+}
+.t-row .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--line-2);
+  margin-left: 2px;
+}
+.t-row.active .dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ok), transparent 75%);
+}
+.t-row .scheme {
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 1px 3px;
+  text-align: center;
+}
+.t-row .name { color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-row .host { color: var(--faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-row .lat { text-align: right; font-variant-numeric: tabular-nums; font-size: 10.5px; }
+.t-row .hot {
+  text-align: center; color: var(--faint); font-size: 10px;
+  border: 1px solid var(--line); border-radius: 2px;
+  width: 14px; height: 14px; line-height: 12px;
+}
+
+/* ---- command bar ---- */
+.t-cmdbar {
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+  padding: 6px 8px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.t-cmd {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0 5px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+  text-align: center;
+  line-height: 1.1;
+}
+.t-cmd:hover { color: var(--fg); border-color: var(--line-2); }
+.t-cmd.active { color: var(--fg); background: var(--bg-3); border-color: var(--fg); }
+.t-cmd .kbd { font-size: 9px; color: var(--faint); margin-top: 2px; letter-spacing: 0; }
+
+/* ---- status line ---- */
+.t-status {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 9.5px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.t-status .sep { color: var(--line-2); }
+.t-status .mid { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+
+/* ---- sub-page header ---- */
+.t-sub-head {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-2);
+}
+.t-sub-head .back { font-size: 10px; color: var(--muted); }
+.t-sub-head .back:hover { color: var(--fg); }
+.t-sub-head .title { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+.t-sub-head .right { margin-left: auto; color: var(--muted); font-size: 10px; }
+
+.t-toolbar {
+  padding: 6px 10px;
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px;
+}
+.t-toolbar input { flex: 1; }
+.t-btn {
+  border: 1px solid var(--line);
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-2);
+}
+.t-btn:hover { color: var(--fg); border-color: var(--line-2); }
+
+/* ---- servers ---- */
+.t-server-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 50px;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 8px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 11px;
+}
+.t-server-row .scheme { color: var(--muted); font-size: 10px; }
+.t-server-row .edit { text-align: right; font-size: 10px; color: var(--muted); }
+.t-server-row .edit:hover { color: var(--fg); }
+
+/* ---- rules ---- */
+.t-rule-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 11px;
+  align-items: baseline;
+}
+.t-rule-row .match { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-rule-row .via { color: var(--muted); font-size: 10.5px; }
+
+/* ---- pac ---- */
+.t-pac {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 17px,
+      var(--bg-2) 17px 18px
+    );
+}
+.t-pac .ln { color: var(--faint); width: 22px; display: inline-block; user-select: none; text-align: right; margin-right: 8px; }
+.t-pac .kw { color: var(--fg); font-weight: 600; }
+.t-pac .str { color: var(--ok); }
+.t-pac .com { color: var(--faint); }
+
+/* ---- empty states ---- */
+.t-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  gap: 6px;
+  color: var(--muted);
+}
+.t-empty .big { font-size: 12px; color: var(--fg-2); }
+.t-empty .note { font-size: 10.5px; color: var(--faint); max-width: 260px; line-height: 1.5; }

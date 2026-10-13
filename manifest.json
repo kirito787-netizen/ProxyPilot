@@ -1,0 +1,44 @@
+{
+   "action": {
+      "default_icon": {
+         "128": "icons/icon128.png",
+         "16": "icons/icon16.png",
+         "32": "icons/icon32.png",
+         "48": "icons/icon48.png"
+      },
+      "default_popup": "src/popup/popup.html",
+      "default_title": "ProxyPilot"
+   },
+   "background": {
+      "service_worker": "src/background/background.js",
+      "type": "module"
+   },
+   "commands": {
+      "_execute_action": {
+         "description": "打开代理切换菜单",
+         "suggested_key": {
+            "default": "Alt+Shift+P"
+         }
+      }
+   },
+   "description": "优雅高效的浏览器代理切换工具：一键切换情景模式，支持固定代理、PAC 脚本与自动切换规则。",
+   "host_permissions": [ "\u003Call_urls>" ],
+   "icons": {
+      "128": "icons/icon128.png",
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyYKAsIce7r8bUHlRM2svevxGFJf7KgLEB2LNw1JsY2UYVYtBZ2nCG705T90+cEsKUSgmML3xoB4K5kyKNS56WTbKVDtqsekRsGjKBwIspkTu/79DBlduLygVCwpQvr85lxBU69/r5jJ3xZNgMX/FbLRg5Fr8XLNmnnTzQmMwS8VKU9gfRlveq4sxWoXedkaSfVMIa1sjclx2iutM6IRiiFgCD0LL07KU2lBJiibMXV6GVsaYzUlZD/arSeDDRboddD5zkw5aHNd/38z5z4r7zv9osoOr5fZ63iJr+LXjJn32QXAwswZJSW4hJsdYa9VSStouH3CNcimSjv2f8aY1uwIDAQAB",
+   "manifest_version": 3,
+   "minimum_chrome_version": "111",
+   "name": "ProxyPilot · 代理切换",
+   "options_ui": {
+      "open_in_tab": true,
+      "page": "src/options/options.html"
+   },
+   "permissions": [ "proxy", "storage", "tabs", "webRequest", "webRequestAuthProvider" ],
+   "short_name": "ProxyPilot",
+   "update_url": "https://edge.microsoft.com/extensionwebstorebase/v1/crx",
+   "version": "1.0.0"
+}

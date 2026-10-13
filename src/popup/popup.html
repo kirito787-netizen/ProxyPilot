@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>proxy</title>
+    <link rel="stylesheet" href="../common/theme.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="popup t-popup" id="app">
+      <div class="boot-state" role="status">正在加载 ProxyPilot…</div>
+    </div>
+    <script>
+      (() => {
+        const showError = (message) => {
+          const root = document.getElementById('app');
+          if (!root) return;
+          root.innerHTML = '';
+          root.className = 'popup t-popup boot-error';
+          const title = document.createElement('strong');
+          title.textContent = 'ProxyPilot 启动失败';
+          const detail = document.createElement('span');
+          detail.textContent = String(message || '未知错误');
+          const retry = document.createElement('button');
+          retry.textContent = '重新加载';
+          retry.addEventListener('click', () => window.location.reload());
+          root.append(title, detail, retry);
+        };
+        window.addEventListener('error', (event) => showError(event.error?.message || event.message));
+        window.addEventListener('unhandledrejection', (event) => showError(event.reason?.message || event.reason));
+      })();
+    </script>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
