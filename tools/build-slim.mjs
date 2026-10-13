@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createPackage } from '@electron/asar';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const root = process.cwd();
 const stage = path.join(root, '.pack-slim');
@@ -56,6 +57,17 @@ fs.mkdirSync(resDir, { recursive: true });
 fs.copyFileSync(tempAsar, path.join(resDir, 'app.asar'));
 fs.rmSync(tempAsar, { force: true });
 fs.rmSync(stage, { recursive: true, force: true });
+
+// Embed the application icon into the executable.
+try {
+  const require = createRequire(import.meta.url);
+  const rceditModule = require('rcedit');
+  const rcedit = rceditModule.rcedit || rceditModule.default || rceditModule;
+  await rcedit(path.join(outDir, 'ProxyPilot.exe'), { icon: path.join(root, 'icons', 'proxypilot.ico') });
+  console.log('icon embedded');
+} catch (error) {
+  console.warn('icon embed skipped: ' + (error && error.message));
+}
 
 let total = 0;
 const walk = (dir) => {

@@ -141,7 +141,7 @@ function encode(rgba, size) {
   ]);
 }
 
-for (const size of [16, 32, 48, 128, 256]) {
+for (const size of [16, 32, 48, 64, 128, 256]) {
   const file = join(OUT, 'icon' + size + '.png');
   writeFileSync(file, encode(render(size), size));
   console.log('wrote ' + file);

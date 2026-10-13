@@ -10,19 +10,28 @@
     "dev": "electron .",
     "dist": "electron-builder --win",
     "test:pac": "node desktop/pac-test.mjs",
-    "test:chrome": "node desktop/chrome-pac-test.mjs"
-    ,"test:exe": "node tools/qa/exe-pac-e2e.mjs"
-    ,"test:settings": "node tools/verify-settings.mjs"
-    ,"build:slim": "node tools/build-slim.mjs"
+    "test:chrome": "node desktop/chrome-pac-test.mjs",
+    "test:exe": "node tools/qa/exe-pac-e2e.mjs",
+    "test:settings": "node tools/verify-settings.mjs",
+    "build:slim": "node tools/build-slim.mjs"
   },
   "build": {
     "appId": "local.proxypilot.desktop",
     "productName": "ProxyPilot",
-    "files": ["app/**/*", "desktop/**/*", "icons/**/*", "package.json"],
-    "win": { "target": "nsis", "signAndEditExecutable": false }
+    "files": [
+      "app/**/*",
+      "desktop/**/*",
+      "icons/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   },
   "devDependencies": {
     "electron": "^38.2.0",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "rcedit": "^5.0.2"
   }
 }
