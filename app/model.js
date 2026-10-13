@@ -25,6 +25,7 @@ export const Message = {
   SAVE_OPTIONS: 'saveOptions',
   APPLY_ACTIVE: 'applyActive',
   ADD_RULE: 'addQuickRule',
+  FIND_TAB_HOST: 'findTabHost',
   CONTROL: 'getLevelOfControl',
 };
 

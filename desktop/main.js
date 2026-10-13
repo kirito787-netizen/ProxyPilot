@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, defaultOptions } from '../app/model.js';
 import { buildSystemPac } from '../app/pac.js';
+import { findVisibleTabHost } from './tabs.js';
 app.disableHardwareAcceleration();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -218,6 +219,7 @@ async function handleMessage(message) {
     }
     case 'applyActive': await applyProfile(opts.activeProfile, opts); return { ok: true };
     case 'getLevelOfControl': return { ok: true, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app' };
+    case 'findTabHost': return { ok: true, host: await findVisibleTabHost() };
     case 'addQuickRule': {
       const auto = opts.profiles[message.autoProfileName];
       if (!auto || auto.type !== PROFILE_TYPE.AUTO) return { ok: false, error: '目标不是自动切换情景' };

@@ -48,7 +48,7 @@ export function summarizeProfile(name, options, t) {
   const profile = options.profiles[name];
   if (!profile) return '—';
   if (profile.type === 'fixed') {
-    const server = profile.server || {};
+    const server = profile.fallbackProxy || {};
     return (server.scheme || 'http').toUpperCase() + ' ' + (server.host || '—') + ':' + (server.port || '');
   }
   if (profile.type === 'pac') return profile.pacUrl ? 'PAC · ' + profile.pacUrl : 'PAC';

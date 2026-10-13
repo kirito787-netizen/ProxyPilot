@@ -108,12 +108,47 @@ function renderNav() {
 }
 
 function addProfile() {
-  const name = window.prompt(t('field.name'));
-  if (!name) return;
-  if (draft.profiles[name]) { toast(t('err.nameTaken')); return; }
-  mutate((data) => { data.profiles[name] = blankProfile(name, PROFILE_TYPE.FIXED, data.profiles); });
-  view = { kind: 'profile', name };
-  renderAll();
+  // Electron does not implement window.prompt(), so the new-profile flow uses
+  // an in-page dialog with a name field and a profile-type picker.
+  const nameInput = h('input', {
+    placeholder: t('field.name'),
+    onkeydown: (event) => {
+      if (event.key === 'Enter') submit();
+      if (event.key === 'Escape') close();
+    },
+  });
+  const typeSelect = h('select', {},
+    h('option', { value: PROFILE_TYPE.FIXED }, t('type.fixed')),
+    h('option', { value: PROFILE_TYPE.PAC }, t('type.pac')),
+    h('option', { value: PROFILE_TYPE.AUTO }, t('type.auto')),
+  );
+  const overlay = h('div', {
+    class: 'dialog-overlay',
+    onclick: (event) => { if (event.target === overlay) close(); },
+  },
+    h('div', { class: 'dialog' },
+      h('h3', {}, t('nav.new')),
+      field(t('field.name'), nameInput),
+      field(t('field.type'), typeSelect),
+      h('div', { class: 'row-btns' },
+        h('button', { class: 'btn', onclick: close }, t('action.cancel')),
+        h('button', { class: 'btn primary', onclick: submit }, t('action.create')),
+      ),
+    ),
+  );
+  function close() { overlay.remove(); }
+  function submit() {
+    const name = nameInput.value.trim();
+    if (!name) { toast(t('err.nameRequired')); nameInput.focus(); return; }
+    if (draft.profiles[name]) { toast(t('err.nameTaken')); nameInput.focus(); return; }
+    const type = typeSelect.value;
+    close();
+    mutate((data) => { data.profiles[name] = blankProfile(name, type, data.profiles); });
+    view = { kind: 'profile', name };
+    renderAll();
+  }
+  document.body.append(overlay);
+  setTimeout(() => nameInput.focus(), 0);
 }
 
 function deleteProfile(key) {
