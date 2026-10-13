@@ -127,6 +127,7 @@ const zh = {
   'site.routeVia': '定向到',
   'site.placeholder': '输入域名测试，如 example.com',
   'site.autoOnly': '切换到自动切换情景后，可按当前网站快速定向',
+  'desktop.takeover': '桌面版正在通过系统代理接管本浏览器，扩展已自动让位；请在桌面版中切换情景。',
 };
 
 const en = {
@@ -258,6 +259,7 @@ const en = {
   'site.routeVia': 'Route via',
   'site.placeholder': 'Type a host to test, e.g. example.com',
   'site.autoOnly': 'Switch to an auto-switch profile to route sites quickly',
+  'desktop.takeover': 'The desktop app is controlling this browser via the system proxy — the extension has stepped aside. Switch profiles in the desktop app.',
 };
 
 export function createTranslator(lang) {

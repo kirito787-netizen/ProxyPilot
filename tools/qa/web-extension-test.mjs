@@ -11,6 +11,10 @@ import { dayKey } from '../../web/lib/stats.js';
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web');
 
+// Keep the desktop-probe inside the test's own endpoint so the result never
+// depends on whether a real ProxyPilot desktop instance is running locally.
+process.env.PROXYPILOT_DESKTOP_STATE_URL = 'http://127.0.0.1:17998/proxypilot.state';
+
 const assert = (condition, message) => {
   if (!condition) {
     console.error('FAIL: ' + message);
@@ -88,9 +92,11 @@ function makeChromeStub() {
 const stub = makeChromeStub();
 globalThis.chrome = stub.chrome;
 
-const { dispatch } = await import('../../web/background/engine.js');
+const engine = await import('../../web/background/engine.js');
+const { dispatch } = engine;
 
 // Module evaluation runs wake(): defaults created, direct applied.
+await engine.ready();
 let state = await dispatch({ type: 'state.get' });
 assert(state.ok, 'getState after first wake');
 assert(state.opts && state.opts.profiles['代理服务器'], 'default profiles created');
@@ -270,6 +276,29 @@ assert(!badUrl.ok, 'invalid subscription URL rejected');
 const removed = await dispatch({ type: 'subs.remove', id: subEntry.id });
 assert(removed.ok && removed.subscriptions.length === 0, 'subscription removed');
 globalThis.fetch = realFetch;
+
+// ---- desktop handoff: the extension must yield to the desktop app ----
+
+const { createServer } = await import('node:http');
+const desktopServer = createServer((_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ app: 'ProxyPilot', state: 1, activeProfile: '自动切换', profileName: '自动切换' }));
+});
+await new Promise((resolve) => desktopServer.listen(17998, '127.0.0.1', resolve));
+
+const desktopCheck = await dispatch({ type: 'desktop.check' });
+assert(desktopCheck.ok && desktopCheck.desktop.active, 'desktop.check detects the running desktop app');
+assert(stub.proxyValue() === null, 'extension yields chrome.proxy control while the desktop app runs');
+assert(stub.badge.texts.at(-1) === 'DT', 'badge shows DT in desktop mode');
+const desktopState = await dispatch({ type: 'state.get' });
+assert(desktopState.desktop && desktopState.desktop.active && desktopState.desktop.profileName === '自动切换', 'state.get reports desktop takeover');
+
+desktopServer.close();
+await new Promise((resolve) => setTimeout(resolve, 50));
+const resumed = await dispatch({ type: 'desktop.check' });
+assert(resumed.ok && !resumed.desktop.active, 'desktop.check notices the desktop app leaving');
+assert(stub.proxyValue() && stub.proxyValue().mode === 'pac_script', 'extension re-applies its profile after the desktop app exits');
+assert(stub.badge.texts.at(-1) === '自动', 'badge returns to the profile name');
 
 // Unknown message types are rejected cleanly.
 const unknown = await dispatch({ type: 'nope' });

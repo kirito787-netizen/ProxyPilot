@@ -31,6 +31,7 @@ npm start
 ```powershell
 npm run test:pac       # PAC 生成单元测试
 npm run test:chrome    # Chrome 真实路由验证
+npm run test:system    # 系统代理真实路径：Chrome 不带代理参数跟随系统 PAC
 npm run test:settings  # 设置窗口渲染回归
 npm run test:exe       # EXE 端到端：系统 PAC + Chrome 分流
 npm run test:web       # 浏览器扩展引擎冒烟测试
@@ -44,6 +45,13 @@ npm run sync:web       # 将 app/ 共享逻辑同步到 web/lib/（test:web 会�
 - `web/` — 浏览器扩展（Manifest V3）：chrome.proxy 代理引擎、弹窗与设置页，详见 [web/README.md](web/README.md)
 - `tools/` — 图标生成与端到端验证脚本
 
+## 故障排查：Chrome 不走代理
+
+桌面版通过系统 PAC 分流，Chrome、Edge 等默认跟随系统代理。若 Chrome 实际没有走代理，几乎都是被浏览器内的代理扩展覆盖了：chrome.proxy 设置（SwitchyOmega、SetupVPN、各种 VPN 扩展等）一旦写入，浏览器就会完全无视系统代理。
+
+- ProxyPilot 扩展 1.1.0 起支持自动让位：探测到桌面版运行（http://127.0.0.1:17777/proxypilot.state）时清除自己的代理设置，角标显示 DT，浏览器跟随桌面版系统 PAC；桌面版退出后一分钟内自动恢复接管
+- Chrome 里若还装着旧版 ProxyPilot 扩展或第三方代理扩展，请在 chrome://extensions 停用，或重新加载本仓库 web/ 的新版扩展
+- 验证方法：Windows 设置中的代理应显示「使用设置脚本 http://127.0.0.1:17777/proxypilot.pac」，且 npm run test:system 通过
 ## 许可证
 
 [MIT](LICENSE)

@@ -100,6 +100,9 @@ function pageHome() {
   const options = state.opts;
   const active = describeProfile(options.activeProfile, options, t);
   const frag = document.createDocumentFragment();
+  if (state.desktop && state.desktop.active) {
+    frag.append(h('div', { class: 'hint-line' }, t('desktop.takeover')));
+  }
   frag.append(
     h('section', { class: 'current' },
       h('span', { class: 'label' }, t('status.active')),

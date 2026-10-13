@@ -437,9 +437,25 @@ function startPacServer() {
   return new Promise((resolve, reject) => {
     const listen = (port, canFallback) => {
       pacServer = createServer((request, response) => {
-        if ((request.url || '').split('?')[0] === '/proxypilot.pac') {
+        const route = (request.url || '').split('?')[0];
+        if (route === '/proxypilot.pac') {
           response.writeHead(200, { 'Content-Type': 'application/x-ns-proxy-autoconfig; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
           response.end(currentPac); return;
+        }
+        // Discovery endpoint for the browser extension: lets it hand proxy
+        // control back to the system while this app is running.
+        if (route === '/proxypilot.state') {
+          const active = currentOptions ? currentOptions.activeProfile : null;
+          const profile = active && currentOptions.profiles ? currentOptions.profiles[active] : null;
+          response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+          response.end(JSON.stringify({
+            app: 'ProxyPilot',
+            state: 1,
+            activeProfile: active,
+            profileName: profile ? (profile.name || active) : null,
+            pacUrl: pacUrl,
+          }));
+          return;
         }
         response.writeHead(404); response.end('Not found');
       });

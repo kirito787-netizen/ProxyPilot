@@ -16,9 +16,18 @@ import { SUBS_STORAGE_KEY, blankSubscription, fetchSubscription, isSubDue } from
 const REGULAR = { scope: 'regular' };
 const AUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
 const AUTH_MAX_TRIES = 3;
+// While the ProxyPilot desktop app runs it owns the OS proxy (system PAC).
+// chrome.proxy settings would override the system and make the desktop app
+// invisible in this browser, so the engine yields whenever it detects it.
+// Overridable so the automated test can point the probe at a controlled
+// endpoint; "process" does not exist inside a service worker.
+const DESKTOP_STATE_URL = (typeof process !== 'undefined' && process.env && process.env.PROXYPILOT_DESKTOP_STATE_URL) || 'http://127.0.0.1:17777/proxypilot.state';
+const DESKTOP_PROBE_TIMEOUT_MS = 2000;
+const DESKTOP_ALARM = 'proxypilot:desktop-watch';
 
 let proxyError = null;
 let engineLabel = 'DIRECT';
+let desktopState = { active: false, checkedAt: 0, info: null };
 // Routing snapshot refreshed on every successful apply so the request
 // counter can classify traffic without reading storage per request.
 let routeContext = null;
@@ -85,6 +94,27 @@ async function setProxy(value) {
   await chrome.proxy.settings.set({ ...REGULAR, value });
 }
 
+async function probeDesktop() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DESKTOP_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(DESKTOP_STATE_URL, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data && data.app === 'ProxyPilot' ? data : null;
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshDesktopState() {
+  const info = await probeDesktop();
+  desktopState = { active: !!info, checkedAt: Date.now(), info };
+  return desktopState.active;
+}
+
 async function applyProxySettings(name, opts) {
   const profile = opts.profiles[name];
   if (name === BUILTIN.SYSTEM) {
@@ -136,6 +166,13 @@ async function applyProxySettings(name, opts) {
 
 // Apply a profile, then record it as the active one for statistics.
 async function applyProxy(name, opts) {
+  if (await refreshDesktopState()) {
+    // Desktop takeover: follow the OS proxy (its system PAC) instead.
+    await chrome.proxy.settings.clear(REGULAR);
+    engineLabel = 'DESKTOP';
+    routeContext = null;
+    return;
+  }
   await applyProxySettings(name, opts);
   routeContext = { name, options: opts };
   try { await markProxyActive(name); } catch (_) { /* statistics never break proxying */ }
@@ -205,6 +242,14 @@ async function controlLevel() {
 
 async function updateBadge(opts) {
   const name = opts.activeProfile;
+  if (desktopState.active) {
+    try {
+      await chrome.action.setBadgeText({ text: 'DT' });
+      await chrome.action.setBadgeBackgroundColor({ color: '#22C55E' });
+      await chrome.action.setTitle({ title: 'ProxyPilot — 桌面版已接管系统代理 / Desktop app owns the system proxy' });
+    } catch (_) { /* action API unavailable in some test contexts */ }
+    return;
+  }
   let text = '';
   let color = '#64748b';
   let label = name;
@@ -393,7 +438,13 @@ async function handleMessage(message) {
         levelOfControl: proxyError ? 'not_controllable' : await controlLevel(),
         proxyError,
         engine: engineLabel,
+        desktop: { active: desktopState.active, checkedAt: desktopState.checkedAt, profileName: desktopState.info ? desktopState.info.profileName : null },
       };
+    case 'desktop.check': {
+      await applyProxy(opts.activeProfile, opts);
+      await updateBadge(opts);
+      return { ok: true, desktop: { active: desktopState.active, checkedAt: desktopState.checkedAt, profileName: desktopState.info ? desktopState.info.profileName : null }, opts };
+    }
     case 'profile.switch':
       return { ok: true, opts: await switchProfile(message.name) };
     case 'options.save':
@@ -558,7 +609,22 @@ async function wake() {
 
 chrome.runtime.onInstalled.addListener(() => { applyStartupProfile().catch(() => {}); });
 chrome.runtime.onStartup.addListener(() => { applyStartupProfile().catch(() => {}); });
-wake().catch(() => {});
+const initialWake = wake().catch(() => {});
+// Resolves once the startup proxy application (including the desktop probe)
+// has settled; automated tests and future callers can await it.
+export function ready() { return initialWake; }
+
+// Periodic handoff watch: pick control back up when the desktop app exits,
+// and yield again shortly after it starts. One minute keeps the gap small
+// without keeping the worker alive.
+try { chrome.alarms.create(DESKTOP_ALARM, { periodInMinutes: 1 }); } catch (_) { /* unavailable in some test contexts */ }
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm && alarm.name === DESKTOP_ALARM) {
+    loadOptions()
+      .then(async (opts) => { await applyProxy(opts.activeProfile, opts); await updateBadge(opts); })
+      .catch(() => { /* retried on the next alarm */ });
+  }
+});
 
 chrome.webRequest.onAuthRequired.addListener(
   (details, asyncCallback) => {

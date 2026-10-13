@@ -11,6 +11,7 @@
     "dist": "electron-builder --win",
     "test:pac": "node desktop/pac-test.mjs",
     "test:chrome": "node desktop/chrome-pac-test.mjs",
+    "test:system": "node tools/qa/system-pac-e2e.mjs",
     "test:exe": "node tools/qa/exe-pac-e2e.mjs",
     "test:web": "node tools/qa/web-extension-test.mjs",
     "test:settings": "node tools/verify-settings.mjs",
