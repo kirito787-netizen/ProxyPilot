@@ -1,6 +1,6 @@
 {
   "name": "proxypilot-desktop",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "ProxyPilot — Windows desktop proxy switcher with per-domain system PAC routing",
   "license": "MIT",
   "main": "desktop/main.js",
@@ -21,6 +21,7 @@
   "build": {
     "appId": "local.proxypilot.desktop",
     "productName": "ProxyPilot",
+    "compression": "maximum",
     "files": [
       "app/**/*",
       "desktop/**/*",
@@ -29,7 +30,11 @@
     ],
     "win": {
       "target": "nsis",
-      "signAndEditExecutable": false
+      "icon": "icons/proxypilot.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "differentialPackage": false
     }
   },
   "devDependencies": {
