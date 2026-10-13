@@ -221,13 +221,17 @@ for (const [source, target] of sharedPairs) {
     drifted = true;
   }
 }
-if (drifted) process.exitCode = 1;
-else console.log('ok: web/lib shared logic matches the app sources');
-
-console.log(process.exitCode ? 'test:web FAILED' : 'test:web passed');
-
 // Every path the manifest and pages reference must exist inside web/.
 const manifest = JSON.parse(readFileSync(join(webRoot, 'manifest.json'), 'utf8'));
+// The engine registers onAuthRequired with an <all_urls> filter; Chrome
+// refuses to dispatch webRequest events for URLs without host permissions
+// (manifest error: "You need to request host permissions ...").
+if (manifest.permissions.includes('webRequest') && !(manifest.host_permissions || []).includes('<all_urls>')) {
+  console.error('FAIL: webRequest listeners need host_permissions covering their <all_urls> filter');
+  process.exitCode = 1;
+} else {
+  console.log('ok: webRequest host_permissions declared');
+}
 const references = [
   join(webRoot, manifest.background.service_worker),
   ...Object.values(manifest.icons).map((ref) => join(webRoot, ref)),
@@ -249,3 +253,8 @@ if (missing.length) {
 } else {
   console.log('ok: all ' + references.length + ' referenced files exist');
 }
+
+if (drifted) process.exitCode = 1;
+else console.log('ok: web/lib shared logic matches the app sources');
+
+console.log(process.exitCode ? 'test:web FAILED' : 'test:web passed');
