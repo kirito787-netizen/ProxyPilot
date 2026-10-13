@@ -300,6 +300,38 @@ assert(resumed.ok && !resumed.desktop.active, 'desktop.check notices the desktop
 assert(stub.proxyValue() && stub.proxyValue().mode === 'pac_script', 'extension re-applies its profile after the desktop app exits');
 assert(stub.badge.texts.at(-1) === '自动', 'badge returns to the profile name');
 
+// ---- related host detection ----
+
+stub.chrome.tabs.__setAnswer([{ id: 7, url: 'https://www.google.com/' }]);
+const emitTab = (url, tabId, type) => stub.registered.completed({ url, tabId, type: type || 'xhr' });
+emitTab('https://www.google.com/', 7, 'main_frame');
+emitTab('https://maps.google.com/maps', 7);
+emitTab('https://www.gstatic.com/a.js', 7);
+emitTab('https://www.gstatic.com/b.js', 7);
+emitTab('https://www.googleapis.com/x', 7);
+emitTab('https://ads.example.com/y', 7);
+emitTab('https://evil.com/z', 9);
+await new Promise((resolve) => setTimeout(resolve, 0));
+const related = await dispatch({ type: 'tab.relatedHosts' });
+assert(related.ok && related.related && related.related.host === 'www.google.com', 'related hosts query returns tab context');
+const relatedHosts = related.related.hosts.map((item) => item.host);
+assert(relatedHosts.includes('www.googleapis.com'), 'cross-domain host suggested');
+assert(relatedHosts.includes('www.gstatic.com'), 'high-count host suggested');
+assert(!relatedHosts.includes('maps.google.com'), 'same-registrable-domain hosts filtered as covered');
+assert(!relatedHosts.includes('evil.com'), 'other tabs are not mixed in');
+assert(related.related.hosts[0].host === 'www.googleapis.com', 'affinity hosts rank first');
+
+const bulk = await dispatch({
+  type: 'rules.addBulk',
+  autoProfileName: '自动切换',
+  targetProfileName: '代理服务器',
+  patterns: ['*.gstatic.com', '*.googleapis.com', '*.gstatic.com'],
+});
+assert(bulk.ok && bulk.added === 2, 'bulk add dedupes patterns');
+const bulkState = await dispatch({ type: 'state.get' });
+const autoRules = bulkState.opts.profiles['自动切换'].rules || [];
+assert(autoRules.some((rule) => rule.condition.pattern === '*.gstatic.com' && rule.profileName === '代理服务器'), 'bulk rules stored');
+
 // Unknown message types are rejected cleanly.
 const unknown = await dispatch({ type: 'nope' });
 assert(!unknown.ok && unknown.error.includes('nope'), 'unknown message rejected');

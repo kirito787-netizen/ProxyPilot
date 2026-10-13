@@ -128,6 +128,10 @@ const zh = {
   'site.placeholder': '输入域名测试，如 example.com',
   'site.autoOnly': '切换到自动切换情景后，可按当前网站快速定向',
   'desktop.takeover': '桌面版正在通过系统代理接管本浏览器，扩展已自动让位；请在桌面版中切换情景。',
+  'site.related': '页面关联域名',
+  'site.relatedApply': '添加勾选',
+  'site.relatedEmpty': '本页暂未发现其他域名',
+  'site.relatedTarget': '关联规则目标',
 };
 
 const en = {
@@ -260,6 +264,10 @@ const en = {
   'site.placeholder': 'Type a host to test, e.g. example.com',
   'site.autoOnly': 'Switch to an auto-switch profile to route sites quickly',
   'desktop.takeover': 'The desktop app is controlling this browser via the system proxy — the extension has stepped aside. Switch profiles in the desktop app.',
+  'site.related': 'Related hosts on this page',
+  'site.relatedApply': 'Add checked',
+  'site.relatedEmpty': 'No other hosts observed on this page yet',
+  'site.relatedTarget': 'Related rules target',
 };
 
 export function createTranslator(lang) {

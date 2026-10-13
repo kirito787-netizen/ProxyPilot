@@ -52,6 +52,8 @@ export const Message = {
   APPLY_ACTIVE: 'proxy.apply',
   ADD_RULE: 'rule.addQuick',
   FIND_TAB_HOST: 'tab.findHost',
+  TAB_RELATED_HOSTS: 'tab.relatedHosts',
+  ADD_RULES_BULK: 'rules.addBulk',
   CONTROL: 'control.level',
   STATS_GET: 'stats.get',
   STATS_RESET: 'stats.reset',
