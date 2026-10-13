@@ -6,7 +6,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, defaultOptions } from '../app/model.js';
+import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, initialOptions, normalizeOptions } from '../app/model.js';
 import { buildSystemPac } from '../app/pac.js';
 import { findVisibleTabHost } from './tabs.js';
 app.disableHardwareAcceleration();
@@ -46,8 +46,8 @@ const backupPath = () => path.join(app.getPath('userData'), BACKUP_FILE);
 
 async function loadOptions() {
   try {
-    const parsed = JSON.parse(await readFile(optionsPath(), 'utf8'));
-    const defs = defaultOptions();
+    const parsed = normalizeOptions(JSON.parse(await readFile(optionsPath(), 'utf8')));
+    const defs = initialOptions();
     currentOptions = {
       ...parsed,
       schemaVersion: SCHEMA_VERSION,
@@ -56,7 +56,7 @@ async function loadOptions() {
       activeProfile: parsed.activeProfile || BUILTIN.DIRECT,
     };
   } catch (_) {
-    currentOptions = defaultOptions();
+    currentOptions = initialOptions();
     await saveOptions(currentOptions, false);
   }
   return clone(currentOptions);
@@ -204,9 +204,9 @@ async function switchProfile(name) {
 async function handleMessage(message) {
   const opts = clone(currentOptions || await loadOptions());
   switch (message.type) {
-    case 'getState': return { ok: true, opts: opts, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app', proxyError: proxyError, pacUrl: pacUrl };
-    case 'switchProfile': return { ok: true, opts: await switchProfile(message.name) };
-    case 'saveOptions': {
+    case 'state.get': return { ok: true, opts: opts, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app', proxyError: proxyError, pacUrl: pacUrl };
+    case 'profile.switch': return { ok: true, opts: await switchProfile(message.name) };
+    case 'options.save': {
       const previous = clone(currentOptions || opts);
       await applyProfile(message.opts.activeProfile, message.opts);
       try {
@@ -217,14 +217,14 @@ async function handleMessage(message) {
         throw error;
       }
     }
-    case 'applyActive': await applyProfile(opts.activeProfile, opts); return { ok: true };
-    case 'getLevelOfControl': return { ok: true, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app' };
-    case 'findTabHost': return { ok: true, host: await findVisibleTabHost() };
-    case 'addQuickRule': {
+    case 'proxy.apply': await applyProfile(opts.activeProfile, opts); return { ok: true };
+    case 'control.level': return { ok: true, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app' };
+    case 'tab.findHost': return { ok: true, host: await findVisibleTabHost() };
+    case 'rule.addQuick': {
       const auto = opts.profiles[message.autoProfileName];
       if (!auto || auto.type !== PROFILE_TYPE.AUTO) return { ok: false, error: '目标不是自动切换情景' };
       auto.rules = auto.rules || [];
-      auto.rules.unshift({ condition: { type: message.conditionType || 'HostWildcard', pattern: message.pattern }, profileName: message.targetProfileName });
+      auto.rules.unshift({ condition: { type: message.conditionType || 'host-wildcard', pattern: message.pattern }, profileName: message.targetProfileName });
       if (opts.activeProfile === message.autoProfileName) await applyProfile(opts.activeProfile, opts);
       const saved = await saveOptions(opts);
       return { ok: true, opts: saved };

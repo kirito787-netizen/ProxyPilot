@@ -30,7 +30,7 @@ export function h(tag, props = {}, ...children) {
   return element;
 }
 
-export function applyTheme(theme) {
+export function setThemeMode(theme) {
   const resolved = theme === 'light' || theme === 'dark'
     ? theme
     : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');

@@ -4,9 +4,9 @@
 // writes proxy settings and options storage.
 
 import {
-  BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, defaultOptions,
+  BUILTIN, LEGACY_STORAGE_KEY, normalizeOptions, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, initialOptions,
 } from '../lib/model.js';
-import { buildAutoPac } from '../lib/pac.js';
+import { generateAutoPac } from '../lib/pac.js';
 
 const REGULAR = { scope: 'regular' };
 const AUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
@@ -23,22 +23,30 @@ const authAttempts = new Map();
 // ---- options storage ----
 
 export async function loadOptions() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
-  const parsed = stored && stored[STORAGE_KEY];
-  if (!parsed || typeof parsed !== 'object' || !parsed.profiles || typeof parsed.profiles !== 'object') {
-    const fresh = defaultOptions();
+  const stored = await chrome.storage.local.get([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+  const raw = (stored && stored[STORAGE_KEY]) || (stored && stored[LEGACY_STORAGE_KEY]);
+  if (!raw || typeof raw !== 'object' || !raw.profiles || typeof raw.profiles !== 'object') {
+    const fresh = initialOptions();
     selfWrites++;
     await chrome.storage.local.set({ [STORAGE_KEY]: fresh });
     return fresh;
   }
-  const defs = defaultOptions();
-  return {
-    ...parsed,
+  normalizeOptions(raw);
+  const defs = initialOptions();
+  const options = {
+    ...raw,
     schemaVersion: SCHEMA_VERSION,
-    settings: { ...defs.settings, ...(parsed.settings || {}) },
-    profiles: parsed.profiles,
-    activeProfile: parsed.activeProfile || BUILTIN.DIRECT,
+    settings: { ...defs.settings, ...(raw.settings || {}) },
+    profiles: raw.profiles,
+    activeProfile: raw.activeProfile || BUILTIN.DIRECT,
   };
+  if (!stored[STORAGE_KEY] && stored[LEGACY_STORAGE_KEY]) {
+    // One-time move to the current storage key; drop the legacy entry.
+    selfWrites++;
+    await chrome.storage.local.set({ [STORAGE_KEY]: options });
+    await chrome.storage.local.remove(LEGACY_STORAGE_KEY);
+  }
+  return options;
 }
 
 async function persistOptions(opts) {
@@ -105,7 +113,7 @@ async function applyProxy(name, opts) {
     return;
   }
   if (profile.type === PROFILE_TYPE.AUTO) {
-    await setProxy({ mode: 'pac_script', pacScript: { data: buildAutoPac(profile, opts).script, mandatory: true } });
+    await setProxy({ mode: 'pac_script', pacScript: { data: generateAutoPac(profile, opts).script, mandatory: true } });
     engineLabel = 'PAC · auto';
     return;
   }
@@ -246,7 +254,7 @@ async function findTabHost() {
 async function handleMessage(message) {
   const opts = await loadOptions();
   switch (message && message.type) {
-    case 'getState':
+    case 'state.get':
       return {
         ok: true,
         opts,
@@ -254,11 +262,11 @@ async function handleMessage(message) {
         proxyError,
         engine: engineLabel,
       };
-    case 'switchProfile':
+    case 'profile.switch':
       return { ok: true, opts: await switchProfile(message.name) };
-    case 'saveOptions':
+    case 'options.save':
       return { ok: true, opts: await saveOptionsMessage(message.opts) };
-    case 'applyActive': {
+    case 'proxy.apply': {
       try {
         await applyProxy(opts.activeProfile, opts);
       } catch (error) {
@@ -269,19 +277,19 @@ async function handleMessage(message) {
       await updateBadge(opts);
       return { ok: true };
     }
-    case 'addQuickRule': {
+    case 'rule.addQuick': {
       const auto = opts.profiles[message.autoProfileName];
       if (!auto || auto.type !== PROFILE_TYPE.AUTO) throw new Error('目标不是自动切换情景');
       auto.rules = auto.rules || [];
       auto.rules.unshift({
-        condition: { type: message.conditionType || 'HostWildcard', pattern: message.pattern },
+        condition: { type: message.conditionType || 'host-wildcard', pattern: message.pattern },
         profileName: message.targetProfileName,
       });
       return { ok: true, opts: await saveOptionsMessage(opts) };
     }
-    case 'findTabHost':
+    case 'tab.findHost':
       return { ok: true, host: await findTabHost() };
-    case 'getLevelOfControl':
+    case 'control.level':
       return { ok: true, levelOfControl: await controlLevel() };
     default:
       return { ok: false, error: '未知消息类型：' + ((message && message.type) || '(none)') };

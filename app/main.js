@@ -1,11 +1,11 @@
-import { api, h, applyTheme, onStorageChanged, describeProfile, summarizeProfile } from './shared.js';
-import { makeT } from './i18n.js';
+import { api, h, setThemeMode, onStorageChanged, describeProfile, summarizeProfile } from './shared.js';
+import { createTranslator } from './i18n.js';
 import { BUILTIN, PROFILE_TYPE, Message } from './model.js';
-import { buildAutoPac } from './pac.js';
+import { generateAutoPac } from './pac.js';
 import { normalizeHost, hostMatches } from './site.js';
 
 let state = null;
-let t = makeT('zh');
+let t = createTranslator('zh');
 let page = 'home';
 // Hidden test hook: opening main.html?__testAuto renders the current-site
 // block without touching the system proxy (used by automated UI checks).
@@ -64,9 +64,9 @@ function render() {
   stopSitePolling();
   const options = state.opts;
   const lang = options.settings?.lang || 'zh';
-  t = makeT(lang);
+  t = createTranslator(lang);
   document.documentElement.lang = lang;
-  applyTheme(options.settings?.theme);
+  setThemeMode(options.settings?.theme);
   setStatus(state.proxyError ? 'bad' : 'ok', state.proxyError || '');
 
   const content = document.getElementById('content');
@@ -215,7 +215,7 @@ function pacSource() {
     if (active.pacScript?.trim()) return { src: active.pacScript };
     if (active.pacUrl) return { src: '// url: ' + active.pacUrl };
   }
-  if (active?.type === PROFILE_TYPE.AUTO) return { src: buildAutoPac(active, options).script, note: t('pac.generated') };
+  if (active?.type === PROFILE_TYPE.AUTO) return { src: generateAutoPac(active, options).script, note: t('pac.generated') };
   const firstPac = Object.values(options.profiles).find((profile) =>
     profile.type === PROFILE_TYPE.PAC && (profile.pacScript?.trim() || profile.pacUrl));
   if (firstPac) {
@@ -224,7 +224,7 @@ function pacSource() {
       : { src: '// url: ' + firstPac.pacUrl, note: firstPac.name };
   }
   const firstAuto = Object.values(options.profiles).find((profile) => profile.type === PROFILE_TYPE.AUTO);
-  if (firstAuto) return { src: buildAutoPac(firstAuto, options).script, note: t('pac.generated') };
+  if (firstAuto) return { src: generateAutoPac(firstAuto, options).script, note: t('pac.generated') };
   return null;
 }
 
@@ -305,7 +305,7 @@ function siteMatchLabel(host, options, autoName) {
   const auto = options.profiles[autoName];
   if (!auto || auto.type !== PROFILE_TYPE.AUTO) return '—';
   for (const rule of auto.rules || []) {
-    if (hostMatches(rule.condition?.type || 'HostWildcard', rule.condition?.pattern, host)) {
+    if (hostMatches(rule.condition?.type || 'host-wildcard', rule.condition?.pattern, host)) {
       return describeProfile(rule.profileName, options, t).label;
     }
   }
@@ -355,7 +355,7 @@ async function addSiteRule(targetName) {
   const response = await call(Message.ADD_RULE, {
     autoProfileName: autoName,
     targetProfileName: targetName,
-    conditionType: 'HostWildcard',
+    conditionType: 'host-wildcard',
     pattern: '*.' + host.replace(/^www\./, ''),
   });
   if (response?.ok) {

@@ -35,7 +35,12 @@ function makeChromeStub() {
     },
     storage: {
       local: {
-        get: async (key) => (storage.has(key) ? { [key]: storage.get(key) } : {}),
+        get: async (key) => {
+          const keys = Array.isArray(key) ? key : [key];
+          const found = {};
+          for (const name of keys) if (storage.has(name)) found[name] = storage.get(name);
+          return found;
+        },
         set: async (items) => {
           const changes = {};
           for (const [key, value] of Object.entries(items)) {
@@ -78,7 +83,7 @@ globalThis.chrome = stub.chrome;
 const { dispatch } = await import('../../web/background/engine.js');
 
 // Module evaluation runs wake(): defaults created, direct applied.
-let state = await dispatch({ type: 'getState' });
+let state = await dispatch({ type: 'state.get' });
 assert(state.ok, 'getState after first wake');
 assert(state.opts && state.opts.profiles['代理服务器'], 'default profiles created');
 assert(stub.proxyValue() && stub.proxyValue().mode === 'direct', 'initial proxy mode is direct');
@@ -90,7 +95,7 @@ await new Promise((resolve) => {
 });
 
 // Switch to the fixed proxy profile.
-const fixed = await dispatch({ type: 'switchProfile', name: '代理服务器' });
+const fixed = await dispatch({ type: 'profile.switch', name: '代理服务器' });
 assert(fixed.ok, 'switchProfile to fixed proxy');
 let value = stub.proxyValue();
 assert(value.mode === 'fixed_servers', 'fixed proxy applied as fixed_servers');
@@ -98,7 +103,7 @@ assert(value.rules.fallbackProxy.host === '127.0.0.1' && value.rules.fallbackPro
 assert(stub.badge.texts.at(-1) === '代理', 'badge shows profile name');
 
 // Switch to the auto profile: PAC data generated from rules.
-const auto = await dispatch({ type: 'switchProfile', name: '自动切换' });
+const auto = await dispatch({ type: 'profile.switch', name: '自动切换' });
 assert(auto.ok, 'switchProfile to auto profile');
 value = stub.proxyValue();
 assert(value.mode === 'pac_script' && typeof value.pacScript.data === 'string', 'auto profile applied as pac_script');
@@ -108,10 +113,10 @@ assert(value.pacScript.data.includes('return "DIRECT";'), 'auto PAC falls back t
 
 // Quick rule from the popup site block lands at the top of the rules list.
 const rule = await dispatch({
-  type: 'addQuickRule',
+  type: 'rule.addQuick',
   autoProfileName: '自动切换',
   targetProfileName: '代理服务器',
-  conditionType: 'HostWildcard',
+  conditionType: 'host-wildcard',
   pattern: '*.example.com',
 });
 assert(rule.ok && rule.opts.profiles['自动切换'].rules[0].condition.pattern === '*.example.com', 'addQuickRule unshifts a rule');
@@ -120,26 +125,26 @@ assert(stub.proxyValue().pacScript.data.includes('*.example.com'), 'PAC regenera
 // Save options: theme change persists.
 const next = structuredClone(rule.opts);
 next.settings.theme = 'light';
-const saved = await dispatch({ type: 'saveOptions', opts: next });
-const stored = await stub.chrome.storage.local.get('proxypilot.options');
-assert(saved.ok && stored['proxypilot.options'].settings.theme === 'light', 'saveOptions persists');
+const saved = await dispatch({ type: 'options.save', opts: next });
+const stored = await stub.chrome.storage.local.get('proxypilot/store');
+assert(saved.ok && stored['proxypilot/store'].settings.theme === 'light', 'saveOptions persists');
 
 // Invalid PAC profile surfaces an error and keeps the previous proxy.
 const broken = structuredClone(saved.opts);
 broken.profiles['坏情景'] = { name: '坏情景', type: 'pac', color: '#123456', pacUrl: '', pacScript: '' };
-const failed = await dispatch({ type: 'switchProfile', name: '坏情景' });
+const failed = await dispatch({ type: 'profile.switch', name: '坏情景' });
 assert(!failed.ok, 'failed switch reports an error');
 assert(stub.proxyValue().mode === 'pac_script', 'failed switch reverts to previous proxy');
 
 // System profile hands control back to the browser.
-const system = await dispatch({ type: 'switchProfile', name: 'system' });
+const system = await dispatch({ type: 'profile.switch', name: 'system' });
 assert(system.ok && stub.proxyValue() === null, 'system profile clears extension proxy');
 
 // Proxy auth: add credentials then answer a challenge for the same endpoint.
 const withAuth = structuredClone(saved.opts);
 withAuth.profiles['代理服务器'].fallbackProxy.auth = { username: 'alice', password: 'secret' };
-await dispatch({ type: 'saveOptions', opts: withAuth });
-await dispatch({ type: 'switchProfile', name: '代理服务器' });
+await dispatch({ type: 'options.save', opts: withAuth });
+await dispatch({ type: 'profile.switch', name: '代理服务器' });
 const authHandler = stub.registered.auth[0];
 assert(typeof authHandler === 'function', 'onAuthRequired listener registered');
 await new Promise((resolve) => {
@@ -165,7 +170,7 @@ assert(declined === undefined, 'auth retries are capped to avoid loops');
 
 // findTabHost reads the focused active tab URL.
 stub.chrome.tabs.__setAnswer([{ url: 'https://www.google.com/search?q=pac' }]);
-const tab = await dispatch({ type: 'findTabHost' });
+const tab = await dispatch({ type: 'tab.findHost' });
 assert(tab.ok && tab.host === 'www.google.com', 'findTabHost extracts hostname');
 
 // Unknown message types are rejected cleanly.

@@ -54,7 +54,7 @@ try {
   await Promise.all([listen(origin, originPort), listen(proxy, proxyPort)]);
   const options = { schemaVersion: 1, activeProfile: '自动切换', settings: { theme: 'dark', lang: 'zh', showQuickSwitch: true, refreshTabOnChange: false, startupProfile: '' }, profiles: {
     '代理服务器': { name: '代理服务器', type: 'fixed', color: '#4F8CFF', fallbackProxy: { scheme: 'http', host: '127.0.0.1', port: proxyPort, auth: null }, bypassList: ['127.0.0.1', '::1', 'localhost', '<local>'] },
-    '自动切换': { name: '自动切换', type: 'auto', color: '#22C55E', defaultProfileName: 'direct', rules: [{ condition: { type: 'HostWildcard', pattern: 'proxy-test.local' }, profileName: '代理服务器' }] },
+    '自动切换': { name: '自动切换', type: 'auto', color: '#22C55E', defaultProfileName: 'direct', rules: [{ condition: { type: 'host-wildcard', pattern: 'proxy-test.local' }, profileName: '代理服务器' }] },
   } };
   await writeFile(path.join(dataDir, 'options.json'), JSON.stringify(options, null, 2));
   appProcess = spawn(exe, ['--enable-logging', '--log-file=' + logPath], { env: { ...process.env, PROXYPILOT_DATA_DIR: dataDir }, windowsHide: true });

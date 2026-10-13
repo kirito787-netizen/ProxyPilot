@@ -196,7 +196,7 @@ const en = {
   'site.autoOnly': 'Switch to an auto-switch profile to route sites quickly',
 };
 
-export function makeT(lang) {
+export function createTranslator(lang) {
   const table = lang === 'en' ? en : zh;
   return (key, params) => {
     let text = table[key] ?? zh[key] ?? key;

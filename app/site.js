@@ -22,11 +22,11 @@ export function hostMatches(type, pattern, host) {
   const trimmed = String(pattern || '').trim();
   if (!trimmed || !host) return false;
   try {
-    if (type === 'HostWildcard' || type === 'UrlWildcard') {
+    if (type === 'host-wildcard' || type === 'url-wildcard') {
       return wildcardMatch(trimmed, host) || (trimmed.startsWith('*.') && host === trimmed.slice(2));
     }
-    if (type === 'HostRegex') return new RegExp(trimmed, 'i').test(host);
-    if (type === 'UrlRegex') return new RegExp(trimmed, 'i').test(host);
+    if (type === 'host-regex') return new RegExp(trimmed, 'i').test(host);
+    if (type === 'url-regex') return new RegExp(trimmed, 'i').test(host);
   } catch (_) {
     return false;
   }

@@ -39,13 +39,13 @@ function resultFor(name, options, depth = 0) {
   const profile = options.profiles[name];
   if (!profile) return 'DIRECT';
   if (profile.type === PROFILE_TYPE.FIXED) return endpoint(profile.fallbackProxy);
-  if (profile.type === PROFILE_TYPE.AUTO) return buildAutoPac(profile, options, depth + 1).fallback;
+  if (profile.type === PROFILE_TYPE.AUTO) return generateAutoPac(profile, options, depth + 1).fallback;
   return 'DIRECT';
 }
 
 // Emit an auto-switch PAC body. Returns the script plus its fallback result
 // so parent profiles can inline it.
-export function buildAutoPac(profile, options, depth = 0) {
+export function generateAutoPac(profile, options, depth = 0) {
   const lines = ['function FindProxyForURL(url, host) {', '  host = host.toLowerCase();'];
   const helpers = [];
   for (const rule of profile.rules || []) {
@@ -82,7 +82,7 @@ export function buildSystemPac(name, options) {
     return profile.pacScript;
   }
   if (profile.type === PROFILE_TYPE.AUTO) {
-    return buildAutoPac(profile, options).script;
+    return generateAutoPac(profile, options).script;
   }
   if (profile.type !== PROFILE_TYPE.FIXED || !profile.fallbackProxy) {
     return 'function FindProxyForURL(url, host) { return "DIRECT"; }';

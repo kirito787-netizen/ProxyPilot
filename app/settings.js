@@ -1,11 +1,11 @@
-import { api, h, applyTheme, onStorageChanged } from './shared.js';
-import { makeT } from './i18n.js';
-import { BUILTIN, PROFILE_TYPE, RuleKind, SCHEMES, DEFAULT_PORT, Message, blankProfile } from './model.js';
+import { api, h, setThemeMode, onStorageChanged } from './shared.js';
+import { createTranslator } from './i18n.js';
+import { BUILTIN, PROFILE_TYPE, RuleKind, SCHEMES, DEFAULT_PORT, Message, freshProfile } from './model.js';
 
 let committed = null;
 let draft = null;
 let view = { kind: 'profile', name: null };
-let t = makeT('zh');
+let t = createTranslator('zh');
 let toastTimer = null;
 
 const pane = () => document.getElementById('pane');
@@ -76,7 +76,7 @@ async function apply() {
 
 function discard() {
   draft = JSON.parse(JSON.stringify(committed));
-  applyTheme(draft.settings?.theme);
+  setThemeMode(draft.settings?.theme);
   renderAll();
   toast(t('toast.discarded'));
 }
@@ -143,7 +143,7 @@ function addProfile() {
     if (draft.profiles[name]) { toast(t('err.nameTaken')); nameInput.focus(); return; }
     const type = typeSelect.value;
     close();
-    mutate((data) => { data.profiles[name] = blankProfile(name, type, data.profiles); });
+    mutate((data) => { data.profiles[name] = freshProfile(name, type, data.profiles); });
     view = { kind: 'profile', name };
     renderAll();
   }
@@ -352,7 +352,7 @@ function renderAppearance() {
       { value: 'auto', label: t('theme.auto') },
       { value: 'light', label: t('theme.light') },
       { value: 'dark', label: t('theme.dark') },
-    ], (value) => { mutate((data) => { data.settings.theme = value; }); applyTheme(value); renderAll(); }),
+    ], (value) => { mutate((data) => { data.settings.theme = value; }); setThemeMode(value); renderAll(); }),
   ));
   pane().append(h('div', { class: 'card' },
     h('h3', {}, t('appearance.language')),
@@ -375,7 +375,7 @@ function renderBackup() {
         const options = parsed.options && parsed.options.profiles ? parsed.options : parsed;
         if (!options.profiles) throw new Error('bad format');
         draft = options;
-        applyTheme(draft.settings?.theme);
+        setThemeMode(draft.settings?.theme);
         toast(t('toast.imported'));
         refreshBar();
         renderAll();
@@ -403,9 +403,9 @@ function renderBackup() {
 }
 
 function renderAll() {
-  applyTheme(draft.settings?.theme);
+  setThemeMode(draft.settings?.theme);
   document.documentElement.lang = draft.settings?.lang || 'zh';
-  t = makeT(draft.settings?.lang || 'zh');
+  t = createTranslator(draft.settings?.lang || 'zh');
   renderNav();
   pane().innerHTML = '';
   if (view.kind === 'profile' && draft.profiles[view.name]) {
