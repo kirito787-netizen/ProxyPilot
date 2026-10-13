@@ -127,6 +127,10 @@ const zh = {
   'site.routeVia': '定向到',
   'site.placeholder': '输入域名测试，如 example.com',
   'site.autoOnly': '切换到自动切换情景后，可按当前网站快速定向',
+  'site.related': '页面关联域名',
+  'site.relatedApply': '添加勾选',
+  'site.relatedEmpty': '本页暂未发现其他域名',
+  'site.relatedTarget': '关联规则目标',
 };
 
 const en = {
@@ -258,6 +262,10 @@ const en = {
   'site.routeVia': 'Route via',
   'site.placeholder': 'Type a host to test, e.g. example.com',
   'site.autoOnly': 'Switch to an auto-switch profile to route sites quickly',
+  'site.related': 'Related hosts on this page',
+  'site.relatedApply': 'Add checked',
+  'site.relatedEmpty': 'No other hosts observed on this page yet',
+  'site.relatedTarget': 'Related rules target',
 };
 
 export function createTranslator(lang) {

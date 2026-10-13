@@ -185,6 +185,8 @@ async function recordObservedRequest(details) {
     if (!details || !details.url || !routeContext) return;
     const host = normalizeHost(details.url);
     if (!host) return;
+    if (details.type === 'main_frame') tabHosts.delete(details.tabId);
+    noteTabHost(details.tabId, host);
     const decision = classifyRoute(routeContext.options, host, details.url);
     if (decision.via === 'skip') return;
     const stats = await loadStats();
@@ -192,6 +194,64 @@ async function recordObservedRequest(details) {
     if (++countedRequests % 25 === 0) await flushStats();
     else scheduleStatsFlush();
   } catch (_) { /* statistics never break proxying */ }
+}
+
+// ---- per-tab host observations (related-domain suggestions) ----
+// What a page actually loads is detectable; corporate affiliation is not.
+// So the UI suggests observed cross-domain hosts and the user picks.
+
+const TAB_HOSTS_LIMIT = 100;
+const TABS_LIMIT = 30;
+const tabHosts = new Map();
+
+function noteTabHost(tabId, host) {
+  if (!Number.isInteger(tabId) || tabId < 0 || !host) return;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return; // IPs are not domain candidates
+  let hosts = tabHosts.get(tabId);
+  if (!hosts) {
+    while (tabHosts.size >= TABS_LIMIT) {
+      const oldest = tabHosts.keys().next().value;
+      tabHosts.delete(oldest);
+    }
+    hosts = new Map();
+    tabHosts.set(tabId, hosts);
+  }
+  hosts.set(host, (hosts.get(host) || 0) + 1);
+  if (hosts.size > TAB_HOSTS_LIMIT) {
+    let smallest = null;
+    for (const key of hosts.keys()) {
+      if (smallest === null || hosts.get(key) < hosts.get(smallest)) smallest = key;
+    }
+    hosts.delete(smallest);
+  }
+}
+
+// Naive registrable domain: last two labels. Good enough to tell the user
+// which hosts are already covered by the *.domain wildcard they add.
+function baseDomain(host) {
+  const labels = String(host || '').split('.').filter(Boolean);
+  return labels.slice(-2).join('.');
+}
+
+async function findRelatedHosts() {
+  let tab = null;
+  try { [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }); } catch (_) { return null; }
+  if (!tab || !tab.url || !Number.isInteger(tab.id)) return null;
+  let host = null;
+  try { host = new URL(tab.url).hostname || null; } catch (_) { return null; }
+  if (!host) return null;
+  const base = baseDomain(host);
+  const token = (base.split('.')[0] || '').toLowerCase();
+  const observed = tabHosts.get(tab.id) || new Map();
+  const hosts = [];
+  let covered = 0;
+  for (const [candidate, count] of observed) {
+    if (candidate === host) continue;
+    if (baseDomain(candidate) === base) { covered++; continue; }
+    hosts.push({ host: candidate, count, affinity: token && candidate.includes(token) ? 1 : 0 });
+  }
+  hosts.sort((a, b) => (b.affinity - a.affinity) || (b.count - a.count));
+  return { host, base, covered, hosts: hosts.slice(0, 12) };
 }
 
 async function controlLevel() {
@@ -421,6 +481,26 @@ async function handleMessage(message) {
     }
     case 'tab.findHost':
       return { ok: true, host: await findTabHost() };
+    case 'tab.relatedHosts':
+      return { ok: true, related: await findRelatedHosts() };
+    case 'rules.addBulk': {
+      const auto = opts.profiles[message.autoProfileName];
+      if (!auto || auto.type !== PROFILE_TYPE.AUTO) throw new Error('目标不是自动切换情景');
+      const patterns = [...new Set((Array.isArray(message.patterns) ? message.patterns : [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean))];
+      if (!patterns.length) return { ok: false, error: '没有可添加的规则' };
+      auto.rules = auto.rules || [];
+      let added = 0;
+      for (const pattern of patterns) {
+        const kind = message.conditionType || 'host-wildcard';
+        const exists = (auto.rules).some((rule) => rule.condition && rule.condition.type === kind && rule.condition.pattern === pattern);
+        if (exists) continue;
+        auto.rules.unshift({ condition: { type: kind, pattern }, profileName: message.targetProfileName });
+        added++;
+      }
+      return { ok: true, opts: await saveOptionsMessage(opts), added };
+    }
     case 'control.level':
       return { ok: true, levelOfControl: await controlLevel() };
     case 'stats.get': {

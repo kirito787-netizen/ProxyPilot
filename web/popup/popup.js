@@ -13,6 +13,11 @@ let siteTimer = null;
 let siteHostValue = '';
 let siteAutoHost = null;
 let siteUserEdited = false;
+let siteRelated = null;
+let siteRelatedHost = null;
+let siteRelatedTargetName = null;
+let siteRelatedToken = 0;
+const siteRelatedSelection = new Set();
 
 function call(type, extra = {}) {
   return api.call({ type, ...extra });
@@ -535,6 +540,7 @@ function buildSiteBlock(options) {
   return h('div', { class: 'site-block', id: 'site-slot' },
     h('div', { class: 'site-head' }, input, h('span', { class: 'site-result' })),
     chips,
+    h('div', { id: 'site-related', class: 'chips', style: 'flex-wrap:wrap;gap:4px;' }),
   );
 }
 
@@ -550,6 +556,7 @@ function updateSiteBlock() {
     ? t('site.matches') + ' → ' + siteMatchLabel(host, state.opts, autoName)
     : t('site.matches') + ' → —';
   for (const chip of block.querySelectorAll('.chip')) chip.disabled = !host;
+  updateSiteRelated();
 }
 
 async function addSiteRule(targetName) {
@@ -570,6 +577,77 @@ async function addSiteRule(targetName) {
   }
 }
 
+async function refreshSiteRelated() {
+  const token = ++siteRelatedToken;
+  const response = await call(Message.TAB_RELATED_HOSTS);
+  if (token !== siteRelatedToken) return;
+  siteRelated = response && response.ok ? response.related : null;
+  siteRelatedSelection.clear();
+  for (const item of (siteRelated && siteRelated.hosts) || []) {
+    if (item.affinity) siteRelatedSelection.add(item.host);
+  }
+  updateSiteRelated();
+}
+
+function updateSiteRelated() {
+  const wrap = document.getElementById('site-related');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const hosts = (siteRelated && siteRelated.hosts) || [];
+  const host = normalizeHost(siteHostValue);
+  if (!hosts.length) {
+    wrap.append(h('div', { class: 'summary', style: 'text-align:center;width:100%;' }, t('site.relatedEmpty')));
+    return;
+  }
+  wrap.append(h('div', { class: 'summary', style: 'text-align:center;width:100%;' }, t('site.related')));
+  const targets = siteTargets(state.opts);
+  if (!siteRelatedTargetName || !targets.some((target) => target.name === siteRelatedTargetName)) {
+    siteRelatedTargetName = (targets[0] || {}).name || null;
+  }
+  if (siteRelatedTargetName) {
+    const targetSelect = h('select', {
+      style: 'max-width:140px;',
+      onchange: (event) => { siteRelatedTargetName = event.target.value; },
+    },
+    ...targets.map((target) => h('option', { value: target.name, selected: target.name === siteRelatedTargetName }, target.label)),
+    );
+    wrap.append(h('label', { class: 'field', style: 'width:100%;' }, t('site.relatedTarget'), targetSelect));
+  }
+  for (const item of hosts) {
+    const selected = siteRelatedSelection.has(item.host);
+    wrap.append(h('button', {
+      class: 'chip',
+      style: selected ? '' : 'opacity:0.45;',
+      onclick: () => {
+        if (siteRelatedSelection.has(item.host)) siteRelatedSelection.delete(item.host);
+        else siteRelatedSelection.add(item.host);
+        updateSiteRelated();
+      },
+    }, (selected ? '☑ ' : '☐ ') + item.host + ' ×' + item.count));
+  }
+  const apply = h('button', { class: 'chip', onclick: () => addRelatedRules() }, t('site.relatedApply'));
+  apply.disabled = !host || siteRelatedSelection.size === 0;
+  wrap.append(apply);
+}
+
+async function addRelatedRules() {
+  const autoName = isAutoContext();
+  if (!autoName || !siteRelatedTargetName || !siteRelatedSelection.size) return;
+  const patterns = [...siteRelatedSelection]
+    .map((candidate) => '*.' + candidate.replace(/^www./, ''));
+  const response = await call(Message.ADD_RULES_BULK, {
+    autoProfileName: autoName,
+    targetProfileName: siteRelatedTargetName,
+    patterns,
+  });
+  if (response?.ok) {
+    state.opts = response.opts;
+    render();
+  } else {
+    setStatus('bad', (response && response.error) || t('status.error'));
+  }
+}
+
 function startSitePolling() {
   const tick = async () => {
     if (page !== 'home' || document.hidden) return;
@@ -581,6 +659,10 @@ function startSitePolling() {
         siteHostValue = host;
         updateSiteBlock();
       }
+    }
+    if (host && host !== siteRelatedHost) {
+      siteRelatedHost = host;
+      await refreshSiteRelated();
     }
   };
   tick();
