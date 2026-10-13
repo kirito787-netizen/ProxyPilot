@@ -14,7 +14,17 @@ import { findVisibleTabHost } from './tabs.js';
 app.disableHardwareAcceleration();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = process.env.PROXYPILOT_DATA_DIR;
+// Portable builds carry a portable.marker file next to the exe; their app
+// data (options, stats, subscriptions) then lives in a data folder beside it
+// so the whole folder can be moved or run from a USB stick. Installed and
+// dev builds keep the default per-user AppData location.
+let dataDir = process.env.PROXYPILOT_DATA_DIR;
+if (!dataDir) {
+  try {
+    const exeDir = path.dirname(process.execPath);
+    if (existsSync(path.join(exeDir, 'portable.marker'))) dataDir = path.join(exeDir, 'data');
+  } catch (_) { /* keep the default location */ }
+}
 if (dataDir) app.setPath('userData', dataDir);
 const REG_PATH = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
 const PAC_HOST = '127.0.0.1';

@@ -55,6 +55,9 @@ for (const file of fs.readdirSync(path.join(electronDist, 'locales'))) {
 const resDir = path.join(outDir, 'resources');
 fs.mkdirSync(resDir, { recursive: true });
 fs.copyFileSync(tempAsar, path.join(resDir, 'app.asar'));
+// Portable marker: main.js keeps app data in .\data next to the exe when
+// this file exists. Delete it to fall back to the per-user AppData location.
+fs.writeFileSync(path.join(outDir, 'portable.marker'), 'ProxyPilot portable build - app data lives in the data folder next to ProxyPilot.exe\n', 'utf8');
 fs.rmSync(tempAsar, { force: true });
 fs.rmSync(stage, { recursive: true, force: true });
 
