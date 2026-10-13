@@ -34,6 +34,7 @@ npm run test:chrome    # Chrome 真实路由验证
 npm run test:settings  # 设置窗口渲染回归
 npm run test:exe       # EXE 端到端：系统 PAC + Chrome 分流
 npm run test:web       # 浏览器扩展引擎冒烟测试
+npm run sync:web       # 将 app/ 共享逻辑同步到 web/lib/（test:web 会检查漂移）
 ```
 
 ## 架构

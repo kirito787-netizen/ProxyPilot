@@ -172,8 +172,6 @@ assert(tab.ok && tab.host === 'www.google.com', 'findTabHost extracts hostname')
 const unknown = await dispatch({ type: 'nope' });
 assert(!unknown.ok && unknown.error.includes('nope'), 'unknown message rejected');
 
-console.log(process.exitCode ? 'web extension test FAILED' : 'web extension test passed');
-
 // ---- static checks: manifest JSON + module syntax for every web script ----
 
 try {
@@ -206,6 +204,27 @@ for (const file of listJs(webRoot)) {
 }
 rmSync(tempDir, { recursive: true, force: true });
 if (!process.exitCode) console.log('ok: all extension scripts parse as ES modules');
+
+// Shared logic copies must stay identical to the desktop sources; drift
+// means a desktop edit never reached the extension (npm run sync:web fixes it).
+const repoRoot = join(webRoot, '..');
+const sharedPairs = [
+  ['app/model.js', 'web/lib/model.js'],
+  ['app/pac.js', 'web/lib/pac.js'],
+  ['app/site.js', 'web/lib/site.js'],
+  ['app/i18n.js', 'web/lib/i18n.js'],
+];
+let drifted = false;
+for (const [source, target] of sharedPairs) {
+  if (readFileSync(join(repoRoot, source), 'utf8') !== readFileSync(join(webRoot, target.slice(4)), 'utf8')) {
+    console.error('FAIL: ' + target + ' drifted from ' + source + ' — run npm run sync:web');
+    drifted = true;
+  }
+}
+if (drifted) process.exitCode = 1;
+else console.log('ok: web/lib shared logic matches the app sources');
+
+console.log(process.exitCode ? 'test:web FAILED' : 'test:web passed');
 
 // Every path the manifest and pages reference must exist inside web/.
 const manifest = JSON.parse(readFileSync(join(webRoot, 'manifest.json'), 'utf8'));

@@ -14,7 +14,8 @@
     "test:exe": "node tools/qa/exe-pac-e2e.mjs",
     "test:web": "node tools/qa/web-extension-test.mjs",
     "test:settings": "node tools/verify-settings.mjs",
-    "build:slim": "node tools/build-slim.mjs"
+    "build:slim": "node tools/build-slim.mjs",
+    "sync:web": "node tools/sync-web.mjs"
   },
   "build": {
     "appId": "local.proxypilot.desktop",

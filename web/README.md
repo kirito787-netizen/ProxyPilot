@@ -37,7 +37,7 @@ ProxyPilot 的浏览器扩展版本（Chrome / Edge 等 Chromium 内核浏览器
 ## 结构
 
 - background/engine.js — 代理引擎：情景到 chrome.proxy 的映射、认证应答、消息枢纽
-- lib/ — 与桌面版共享的模型、PAC 生成、站点匹配、i18n
+- lib/ — 与桌面版共享的模型、PAC 生成、站点匹配、i18n（改桌面端对应文件后运行 npm run sync:web 同步；npm run test:web 会检查两边是否一致）
 - popup/ — 快速切换弹窗
 - options/ — 设置页
 
