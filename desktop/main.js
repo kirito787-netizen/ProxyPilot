@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, initialOptions, normalizeOptions } from '../app/model.js';
+import { emptyStats, markActive, pruneStats, resetStats } from '../app/stats.js';
 import { buildSystemPac } from '../app/pac.js';
 import { findVisibleTabHost } from './tabs.js';
 app.disableHardwareAcceleration();
@@ -43,6 +44,34 @@ const clone = (value) => structuredClone(value);
 const ipcClone = (value) => value === undefined ? null : JSON.parse(JSON.stringify(value));
 const optionsPath = () => path.join(app.getPath('userData'), 'options.json');
 const backupPath = () => path.join(app.getPath('userData'), BACKUP_FILE);
+const statsPath = () => path.join(app.getPath('userData'), 'stats.json');
+let currentStats = null;
+
+// Desktop statistics: only profile switches and active time are feasible
+// here — system-level PAC means browser traffic never crosses this process.
+async function loadStats() {
+  try {
+    const parsed = JSON.parse(await readFile(statsPath(), 'utf8'));
+    currentStats = parsed && typeof parsed === 'object' && parsed.days ? parsed : emptyStats();
+  } catch (_) {
+    currentStats = emptyStats();
+  }
+  pruneStats(currentStats);
+  return currentStats;
+}
+
+async function saveStats() {
+  if (!currentStats) return;
+  await mkdir(app.getPath('userData'), { recursive: true });
+  await writeFile(statsPath(), JSON.stringify(currentStats, null, 2), 'utf8');
+}
+
+function markProxyActive(name) {
+  if (!currentStats || !name) return;
+  markActive(currentStats, name);
+  pruneStats(currentStats);
+  saveStats().catch((error) => console.error('Failed to save stats:', error));
+}
 
 async function loadOptions() {
   try {
@@ -184,6 +213,7 @@ async function applyProfile(name, opts) {
   currentPac = nextPac;
   currentOptions = clone(opts);
   proxyError = null;
+  markProxyActive(name);
 }
 
 async function switchProfile(name) {
@@ -220,6 +250,12 @@ async function handleMessage(message) {
     case 'proxy.apply': await applyProfile(opts.activeProfile, opts); return { ok: true };
     case 'control.level': return { ok: true, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app' };
     case 'tab.findHost': return { ok: true, host: await findVisibleTabHost() };
+    case 'stats.get': return { ok: true, stats: currentStats || await loadStats() };
+    case 'stats.reset': {
+      currentStats = resetStats(currentStats || await loadStats());
+      await saveStats();
+      return { ok: true, stats: currentStats };
+    }
     case 'rule.addQuick': {
       const auto = opts.profiles[message.autoProfileName];
       if (!auto || auto.type !== PROFILE_TYPE.AUTO) return { ok: false, error: '目标不是自动切换情景' };
@@ -335,6 +371,7 @@ ipcMain.on('proxypilot:open-main', () => showWindow(mainWindow));
 
 if (isPrimaryInstance) app.whenReady().then(async () => {
   await loadOptions();
+  await loadStats();
   await startPacServer();
   mainWindow = createWindow({ width: 430, height: 680, minWidth: 380, minHeight: 540 });
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
@@ -359,5 +396,8 @@ if (isPrimaryInstance) app.whenReady().then(async () => {
 
 if (isPrimaryInstance) app.on('before-quit', (event) => {
   if (isQuitting) return; event.preventDefault(); isQuitting = true;
-  restoreSystemProxy().catch((error) => console.error('Failed to restore system proxy:', error)).finally(() => { if (pacServer) pacServer.close(); if (tray) tray.destroy(); app.quit(); });
+  if (currentStats && currentStats.active && currentStats.active.name) markProxyActive(currentStats.active.name);
+  Promise.all([restoreSystemProxy(), saveStats()])
+    .catch((error) => console.error('Failed to shut down cleanly:', error))
+    .finally(() => { if (pacServer) pacServer.close(); if (tray) tray.destroy(); app.quit(); });
 });

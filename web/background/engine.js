@@ -7,6 +7,10 @@ import {
   BUILTIN, LEGACY_STORAGE_KEY, normalizeOptions, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, initialOptions,
 } from '../lib/model.js';
 import { generateAutoPac } from '../lib/pac.js';
+import { normalizeHost } from '../lib/site.js';
+import {
+  STATS_KEY, classifyRoute, emptyStats, markActive, pruneStats, recordRequest, resetStats,
+} from '../lib/stats.js';
 
 const REGULAR = { scope: 'regular' };
 const AUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
@@ -14,6 +18,13 @@ const AUTH_MAX_TRIES = 3;
 
 let proxyError = null;
 let engineLabel = 'DIRECT';
+// Routing snapshot refreshed on every successful apply so the request
+// counter can classify traffic without reading storage per request.
+let routeContext = null;
+let statsCache = null;
+let statsDirty = false;
+let statsFlushTimer = null;
+let countedRequests = 0;
 // Self-writes also fire storage.onChanged in this worker; the counter keeps
 // the change listener from re-applying (and re-broadcasting) those.
 let selfWrites = 0;
@@ -72,7 +83,7 @@ async function setProxy(value) {
   await chrome.proxy.settings.set({ ...REGULAR, value });
 }
 
-async function applyProxy(name, opts) {
+async function applyProxySettings(name, opts) {
   const profile = opts.profiles[name];
   if (name === BUILTIN.SYSTEM) {
     // Hand control back to the browser, which follows the OS proxy settings.
@@ -119,6 +130,66 @@ async function applyProxy(name, opts) {
   }
   await setProxy({ mode: 'direct' });
   engineLabel = 'DIRECT';
+}
+
+// Apply a profile, then record it as the active one for statistics.
+async function applyProxy(name, opts) {
+  await applyProxySettings(name, opts);
+  routeContext = { name, options: opts };
+  try { await markProxyActive(name); } catch (_) { /* statistics never break proxying */ }
+}
+
+// ---- usage statistics ----
+
+async function loadStats() {
+  if (statsCache) return statsCache;
+  const stored = await chrome.storage.local.get(STATS_KEY);
+  const parsed = stored && stored[STATS_KEY];
+  statsCache = parsed && typeof parsed === 'object' && parsed.days ? parsed : emptyStats();
+  pruneStats(statsCache);
+  return statsCache;
+}
+
+async function flushStats() {
+  if (statsFlushTimer) { clearTimeout(statsFlushTimer); statsFlushTimer = null; }
+  if (!statsDirty || !statsCache) return;
+  statsDirty = false;
+  try {
+    await chrome.storage.local.set({ [STATS_KEY]: statsCache });
+  } catch (_) {
+    statsDirty = true;
+  }
+}
+
+// MV3 may kill the worker before the debounce fires, which can lose a few
+// seconds of request counters; switch events always flush immediately.
+function scheduleStatsFlush() {
+  statsDirty = true;
+  if (statsFlushTimer) return;
+  statsFlushTimer = setTimeout(() => { statsFlushTimer = null; flushStats(); }, 10000);
+  if (typeof statsFlushTimer.unref === 'function') statsFlushTimer.unref();
+}
+
+async function markProxyActive(name) {
+  const stats = await loadStats();
+  markActive(stats, name);
+  pruneStats(stats);
+  statsDirty = true;
+  await flushStats();
+}
+
+async function recordObservedRequest(details) {
+  try {
+    if (!details || !details.url || !routeContext) return;
+    const host = normalizeHost(details.url);
+    if (!host) return;
+    const decision = classifyRoute(routeContext.options, host, details.url);
+    if (decision.via === 'skip') return;
+    const stats = await loadStats();
+    recordRequest(stats, decision, host);
+    if (++countedRequests % 25 === 0) await flushStats();
+    else scheduleStatsFlush();
+  } catch (_) { /* statistics never break proxying */ }
 }
 
 async function controlLevel() {
@@ -291,6 +362,17 @@ async function handleMessage(message) {
       return { ok: true, host: await findTabHost() };
     case 'control.level':
       return { ok: true, levelOfControl: await controlLevel() };
+    case 'stats.get': {
+      const stats = await loadStats();
+      await flushStats();
+      return { ok: true, stats };
+    }
+    case 'stats.reset': {
+      statsCache = resetStats(await loadStats());
+      statsDirty = true;
+      await flushStats();
+      return { ok: true, stats: statsCache };
+    }
     default:
       return { ok: false, error: '未知消息类型：' + ((message && message.type) || '(none)') };
   }
@@ -328,6 +410,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
     .then(() => updateBadge(next))
     .catch((error) => { proxyError = String((error && error.message) || error); });
 });
+
+// Request counters: only feasible in the extension; the desktop cannot see
+// browser traffic, so it only tracks switches and active time.
+chrome.webRequest.onCompleted.addListener(
+  (details) => { recordObservedRequest(details); },
+  { urls: ['http://*/*', 'https://*/*'] },
+);
 
 // Apply the configured startup profile on install and browser start only, so
 // it does not fight later profile switches when the worker wakes up.

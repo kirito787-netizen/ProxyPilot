@@ -3,6 +3,7 @@ import { createTranslator } from '../lib/i18n.js';
 import { BUILTIN, PROFILE_TYPE, Message } from '../lib/model.js';
 import { generateAutoPac } from '../lib/pac.js';
 import { normalizeHost, hostMatches } from '../lib/site.js';
+import { dailyTotals, dayKey, formatDuration, topEntries } from '../lib/stats.js';
 
 let state = null;
 let t = createTranslator('zh');
@@ -71,7 +72,8 @@ function render() {
   if (page === 'servers') content.append(pageServers());
   else if (page === 'rules') content.append(pageRules());
   else if (page === 'pac') content.append(pagePac());
-  else if (page === 'subs' || page === 'stats') content.append(pagePlaceholder(page));
+  else if (page === 'subs') content.append(pagePlaceholder(page));
+  else if (page === 'stats') { content.append(pageStatsHead()); renderStatsPage(content); }
   else content.append(pageHome());
 
   if (page === 'home' && isAutoContext()) {
@@ -79,6 +81,7 @@ function render() {
     updateSiteBlock();
   }
 
+  if (page === 'home') renderHomeSummary(content);
   renderCmdBar();
   document.getElementById('foot-left').textContent = 'v' + (api.version || '1.0.0');
   document.getElementById('foot-right').textContent = state.engine || '';
@@ -270,6 +273,105 @@ function pagePlaceholder(kind) {
     h('div', {}, t(kind + '.empty')),
     h('div', { class: 'note' }, t(kind + '.note')),
   );
+}
+
+// ---- usage statistics ----
+function pageStatsHead() {
+  return h('div', { style: 'display:flex;align-items:center;gap:8px;' },
+    h('strong', { class: 'section-title', style: 'flex:1;' }, t('stats.title')),
+    h('button', { class: 'icon-btn', title: t('stats.reset'), onclick: resetStatsFlow }, t('stats.reset')),
+  );
+}
+
+async function resetStatsFlow() {
+  if (!window.confirm(t('stats.resetConfirm'))) return;
+  const response = await call(Message.STATS_RESET);
+  if (response && response.ok) render();
+}
+
+async function renderStatsPage(container) {
+  const response = await call(Message.STATS_GET);
+  const stats = response && response.ok ? response.stats : null;
+  const wrap = h('div', { style: 'display:flex;flex-direction:column;gap:10px;' });
+  if (!stats || !stats.days || Object.keys(stats.days).length === 0) {
+    wrap.append(pagePlaceholder('stats'));
+    container.append(wrap);
+    return;
+  }
+  const today = stats.days[dayKey()] || {};
+  const todayCard = h('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:6px;' }, h('h3', {}, t('stats.today')));
+  for (const [name, ms] of Object.entries(today.activeMs || {}).sort((a, b) => b[1] - a[1])) {
+    todayCard.append(h('div', { class: 'current-row' },
+      h('span', { style: 'flex:1;' }, name),
+      h('span', { class: 'summary' }, formatDuration(ms)),
+    ));
+  }
+  const switchTotal = Object.values(today.switches || {}).reduce((sum, count) => sum + count, 0);
+  if (switchTotal) todayCard.append(h('div', { class: 'summary' }, t('stats.switchCount') + ': ' + switchTotal));
+  if (today.requests) {
+    todayCard.append(h('div', { class: 'summary' },
+      t('stats.proxied') + ': ' + (today.requests.proxied || 0) + ' · ' + t('stats.direct') + ': ' + (today.requests.direct || 0)));
+  }
+  if (todayCard.children.length > 1) wrap.append(todayCard);
+
+  const totals = dailyTotals(stats, 7);
+  const metric = (day) => (day.proxied + day.direct) || Math.round(day.activeMs / 60000);
+  const maxMetric = Math.max(1, ...totals.map(metric));
+  const bars = h('div', { style: 'display:flex;align-items:flex-end;gap:6px;height:72px;' });
+  const labels = h('div', { style: 'display:flex;gap:6px;' });
+  for (const day of totals) {
+    const value = metric(day);
+    bars.append(h('div', {
+      title: day.key,
+      style: 'flex:1;border-radius:4px 4px 0 0;background:var(--accent);opacity:' + (value ? '0.85' : '0.18') + ';height:' + Math.max(4, Math.round((value / maxMetric) * 64)) + 'px;',
+    }));
+    labels.append(h('div', { style: 'flex:1;text-align:center;color:var(--muted);font-size:10px;' }, day.key.slice(5)));
+  }
+  wrap.append(h('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:8px;' },
+    h('h3', {}, t('stats.last7')), bars, labels));
+
+  const topHosts = topEntries(today.hosts || {}, 8);
+  if (topHosts.length) {
+    const card = h('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:6px;' }, h('h3', {}, t('stats.topHosts')));
+    for (const [host, count] of topHosts) {
+      card.append(h('div', { class: 'current-row' },
+        h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, host),
+        h('span', { class: 'summary' }, String(count)),
+      ));
+    }
+    wrap.append(card);
+  }
+  const topRules = topEntries(today.ruleHits || {}, 8);
+  if (topRules.length) {
+    const card = h('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:6px;' }, h('h3', {}, t('stats.topRules')));
+    for (const [key, count] of topRules) {
+      const parts = key.split('|');
+      card.append(h('div', { class: 'current-row' },
+        h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, parts[parts.length - 1] + ' (' + parts[0] + ')'),
+        h('span', { class: 'summary' }, String(count)),
+      ));
+    }
+    wrap.append(card);
+  }
+  container.append(wrap);
+}
+
+let homeStatsToken = 0;
+async function renderHomeSummary(container) {
+  const token = ++homeStatsToken;
+  const response = await call(Message.STATS_GET);
+  if (token !== homeStatsToken) return;
+  const stats = response && response.ok ? response.stats : null;
+  const today = (stats && stats.days && stats.days[dayKey()]) || {};
+  const switchTotal = Object.values(today.switches || {}).reduce((sum, count) => sum + count, 0);
+  const activeMs = Object.values(today.activeMs || {}).reduce((sum, ms) => sum + ms, 0);
+  let line;
+  if (today.requests) {
+    line = t('stats.homeSummary').replace('{p}', String(today.requests.proxied || 0)).replace('{d}', String(today.requests.direct || 0)).replace('{s}', String(switchTotal));
+  } else {
+    line = t('stats.homeSummaryDesktop').replace('{s}', String(switchTotal)).replace('{t}', formatDuration(activeMs));
+  }
+  container.append(h('div', { class: 'summary', style: 'text-align:center;' }, line));
 }
 
 // ---- current-site quick routing ----

@@ -7,6 +7,7 @@ import { readdirSync, readFileSync, existsSync, mkdtempSync, copyFileSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dayKey } from '../../web/lib/stats.js';
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web');
 
@@ -71,6 +72,9 @@ function makeChromeStub() {
     webRequest: {
       onAuthRequired: {
         addListener: (fn, _filter, _extra) => registered.auth.push(fn),
+      },
+      onCompleted: {
+        addListener: (fn, _filter) => { registered.completed = fn; },
       },
     },
   };
@@ -172,6 +176,34 @@ assert(declined === undefined, 'auth retries are capped to avoid loops');
 stub.chrome.tabs.__setAnswer([{ url: 'https://www.google.com/search?q=pac' }]);
 const tab = await dispatch({ type: 'tab.findHost' });
 assert(tab.ok && tab.host === 'www.google.com', 'findTabHost extracts hostname');
+
+// ---- usage statistics ----
+
+const statsView = await dispatch({ type: 'stats.get' });
+assert(statsView.ok && statsView.stats && statsView.stats.days, 'stats.get returns statistics');
+const statsToday = statsView.stats.days[dayKey()] || {};
+assert((statsToday.switches['代理服务器'] || 0) >= 1, 'profile switches are counted');
+assert(statsView.stats.active && statsView.stats.active.name === '代理服务器', 'active profile marker follows switches');
+
+// Fixed profile: the request counts as proxied without rule detail.
+await stub.registered.completed({ url: 'https://www.google.com/search?q=x' });
+await new Promise((resolve) => setTimeout(resolve, 0));
+const statsAfterRequest = await dispatch({ type: 'stats.get' });
+const requestDay = (statsAfterRequest.stats.days[dayKey()] || {});
+assert(requestDay.requests && requestDay.requests.proxied === 1, 'proxied requests are counted');
+
+// Auto profile: rule hits are recorded with the same rules the PAC uses.
+await dispatch({ type: 'profile.switch', name: '自动切换' });
+await stub.registered.completed({ url: 'https://www.google.com/search?q=x' });
+await new Promise((resolve) => setTimeout(resolve, 0));
+const statsAfterAuto = await dispatch({ type: 'stats.get' });
+const autoDay = (statsAfterAuto.stats.days[dayKey()] || {});
+assert((autoDay.requests && autoDay.requests.proxied) === 2, 'auto profile requests are counted');
+assert((autoDay.ruleHits || {})['自动切换|host-wildcard|*.google.com'] === 1, 'rule hits are recorded');
+
+const statsReset = await dispatch({ type: 'stats.reset' });
+assert(statsReset.ok && Object.keys(statsReset.stats.days).length === 0, 'stats reset clears history');
+assert(statsReset.stats.active && statsReset.stats.active.name === '自动切换', 'stats reset keeps tracking the active profile');
 
 // Unknown message types are rejected cleanly.
 const unknown = await dispatch({ type: 'nope' });

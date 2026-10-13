@@ -53,6 +53,8 @@ export const Message = {
   ADD_RULE: 'rule.addQuick',
   FIND_TAB_HOST: 'tab.findHost',
   CONTROL: 'control.level',
+  STATS_GET: 'stats.get',
+  STATS_RESET: 'stats.reset',
 };
 
 export function freshProfile(name, type, existing = {}) {

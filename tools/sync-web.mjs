@@ -6,7 +6,7 @@
 // sources; the drift check inside npm run test:web fails until the
 // copies match.
 
-import { copyFileSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,13 +16,14 @@ const pairs = [
   ['app/pac.js', 'web/lib/pac.js'],
   ['app/site.js', 'web/lib/site.js'],
   ['app/i18n.js', 'web/lib/i18n.js'],
+  ['app/stats.js', 'web/lib/stats.js'],
 ];
 
 let changed = 0;
 for (const [source, target] of pairs) {
   const from = join(root, source);
   const to = join(root, target);
-  if (readFileSync(from, 'utf8') !== readFileSync(to, 'utf8')) {
+  if (!existsSync(to) || readFileSync(from, 'utf8') !== readFileSync(to, 'utf8')) {
     copyFileSync(from, to);
     changed++;
     console.log('synced: ' + target);
