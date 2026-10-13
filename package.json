@@ -12,6 +12,7 @@
     "test:pac": "node desktop/pac-test.mjs",
     "test:chrome": "node desktop/chrome-pac-test.mjs",
     "test:exe": "node tools/qa/exe-pac-e2e.mjs",
+    "test:web": "node tools/qa/web-extension-test.mjs",
     "test:settings": "node tools/verify-settings.mjs",
     "build:slim": "node tools/build-slim.mjs"
   },

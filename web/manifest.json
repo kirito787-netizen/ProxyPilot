@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "ProxyPilot",
+  "short_name": "ProxyPilot",
+  "version": "1.0.0",
+  "description": "Per-domain proxy switching: fixed servers, PAC scripts and auto-switch rules, right in your browser.",
+  "minimum_chrome_version": "108",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "ProxyPilot",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "permissions": [
+    "proxy",
+    "storage",
+    "tabs",
+    "webRequest",
+    "webRequestAuthProvider"
+  ]
+}
