@@ -22,12 +22,23 @@ const AUTH_MAX_TRIES = 3;
 // Overridable so the automated test can point the probe at a controlled
 // endpoint; "process" does not exist inside a service worker.
 const DESKTOP_STATE_URL = (typeof process !== 'undefined' && process.env && process.env.PROXYPILOT_DESKTOP_STATE_URL) || 'http://127.0.0.1:17777/proxypilot.state';
+// Rule exchange endpoints live on the same desktop origin as the probe.
+const DESKTOP_ORIGIN = DESKTOP_STATE_URL.replace(/\/proxypilot\.state$/, '');
+const DESKTOP_RULES_URL = DESKTOP_ORIGIN + '/proxypilot.rules';
+const DESKTOP_HEARTBEAT_URL = DESKTOP_ORIGIN + '/proxypilot.extension';
 const DESKTOP_PROBE_TIMEOUT_MS = 2000;
+// Fresh probe results are reused for a short while so profile switches and
+// popup opens do not each pay the probe round trip.
+const DESKTOP_CACHE_MS = 15000;
 const DESKTOP_ALARM = 'proxypilot:desktop-watch';
 
 let proxyError = null;
 let engineLabel = 'DIRECT';
 let desktopState = { active: false, checkedAt: 0, info: null };
+// Tracks the last applied takeover decision so repeated applies while the
+// desktop app runs do not clear chrome.proxy settings over and over.
+let yieldedToDesktop = false;
+let heartbeatInFlight = false;
 // Routing snapshot refreshed on every successful apply so the request
 // counter can classify traffic without reading storage per request.
 let routeContext = null;
@@ -94,11 +105,11 @@ async function setProxy(value) {
   await chrome.proxy.settings.set({ ...REGULAR, value });
 }
 
-async function probeDesktop() {
+async function desktopGet(path) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DESKTOP_PROBE_TIMEOUT_MS);
   try {
-    const response = await fetch(DESKTOP_STATE_URL, { cache: 'no-store', signal: controller.signal });
+    const response = await fetch(DESKTOP_ORIGIN + path, { cache: 'no-store', signal: controller.signal });
     if (!response.ok) return null;
     const data = await response.json();
     return data && data.app === 'ProxyPilot' ? data : null;
@@ -109,10 +120,38 @@ async function probeDesktop() {
   }
 }
 
-async function refreshDesktopState() {
-  const info = await probeDesktop();
+async function refreshDesktopState(force = false) {
+  if (!force && Date.now() - desktopState.checkedAt < DESKTOP_CACHE_MS) return desktopState.active;
+  const info = await desktopGet('/proxypilot.state');
   desktopState = { active: !!info, checkedAt: Date.now(), info };
   return desktopState.active;
+}
+
+function desktopInfo() {
+  return { active: desktopState.active, checkedAt: desktopState.checkedAt, profileName: desktopState.info ? desktopState.info.profileName : null };
+}
+
+// Announce this extension to the running desktop app, carrying the current
+// profiles so the desktop UI can offer to pull them in. Older desktop builds
+// without the endpoint simply ignore the POST.
+async function heartbeatDesktop(opts) {
+  if (heartbeatInFlight) return;
+  heartbeatInFlight = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DESKTOP_PROBE_TIMEOUT_MS);
+  try {
+    await fetch(DESKTOP_HEARTBEAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app: 'ProxyPilot-extension', profiles: opts.profiles, activeProfile: opts.activeProfile }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (_) { /* the desktop app may predate the endpoint; ignore */ }
+  finally {
+    clearTimeout(timer);
+    heartbeatInFlight = false;
+  }
 }
 
 async function applyProxySettings(name, opts) {
@@ -164,18 +203,46 @@ async function applyProxySettings(name, opts) {
   engineLabel = 'DIRECT';
 }
 
-// Apply a profile, then record it as the active one for statistics.
-async function applyProxy(name, opts) {
-  if (await refreshDesktopState()) {
-    // Desktop takeover: follow the OS proxy (its system PAC) instead.
-    await chrome.proxy.settings.clear(REGULAR);
-    engineLabel = 'DESKTOP';
-    routeContext = null;
+// Apply a profile, then record it as the active one for statistics. While the
+// desktop app is detected, the extension yields (desktop wins) and only
+// clears chrome.proxy on the transition into takeover.
+async function applyProxy(name, opts, { forceProbe = false } = {}) {
+  if (await refreshDesktopState(forceProbe)) {
+    if (!yieldedToDesktop) {
+      // Desktop takeover: follow the OS proxy (its system PAC) instead.
+      try { await chrome.proxy.settings.clear(REGULAR); } catch (_) { /* already clear */ }
+      yieldedToDesktop = true;
+      engineLabel = 'DESKTOP';
+      routeContext = null;
+    }
+    await heartbeatDesktop(opts);
     return;
   }
+  yieldedToDesktop = false;
   await applyProxySettings(name, opts);
   routeContext = { name, options: opts };
   try { await markProxyActive(name); } catch (_) { /* statistics never break proxying */ }
+}
+
+// Pull the desktop app's profiles over the local state server.
+async function fetchDesktopRules() {
+  const data = await desktopGet('/proxypilot.rules');
+  if (!data || !data.profiles || typeof data.profiles !== 'object' || Array.isArray(data.profiles)) return null;
+  return data;
+}
+
+async function syncRulesFromDesktop() {
+  if (!(await refreshDesktopState(true))) return { ok: false, error: 'desktop-offline' };
+  const incoming = await fetchDesktopRules();
+  if (!incoming) return { ok: false, error: 'desktop-invalid-data' };
+  const next = structuredClone(await loadOptions());
+  next.profiles = incoming.profiles;
+  if (!next.profiles[next.activeProfile]) next.activeProfile = BUILTIN.DIRECT;
+  await persistOptions(next);
+  // Stays in takeover mode; the apply also heartbeats the new rules upward.
+  await applyProxy(next.activeProfile, next);
+  await updateBadge(next);
+  return { ok: true, opts: next, imported: Object.keys(next.profiles).length, desktop: desktopInfo() };
 }
 
 // ---- usage statistics ----
@@ -491,20 +558,32 @@ async function refreshDueSubscriptions() {
 async function handleMessage(message) {
   const opts = await loadOptions();
   switch (message && message.type) {
-    case 'state.get':
+    case 'state.get': {
+      // Refresh a stale probe so a just-started or just-exited desktop app is
+      // reflected the moment the popup opens; a transition re-applies at once
+      // instead of waiting for the next alarm tick.
+      const wasActive = desktopState.active;
+      await refreshDesktopState(false);
+      if (desktopState.active !== wasActive) {
+        await applyProxy(opts.activeProfile, opts);
+        await updateBadge(opts);
+      }
       return {
         ok: true,
         opts,
         levelOfControl: proxyError ? 'not_controllable' : await controlLevel(),
         proxyError,
         engine: engineLabel,
-        desktop: { active: desktopState.active, checkedAt: desktopState.checkedAt, profileName: desktopState.info ? desktopState.info.profileName : null },
+        desktop: desktopInfo(),
       };
-    case 'desktop.check': {
-      await applyProxy(opts.activeProfile, opts);
-      await updateBadge(opts);
-      return { ok: true, desktop: { active: desktopState.active, checkedAt: desktopState.checkedAt, profileName: desktopState.info ? desktopState.info.profileName : null }, opts };
     }
+    case 'desktop.check': {
+      await applyProxy(opts.activeProfile, opts, { forceProbe: true });
+      await updateBadge(opts);
+      return { ok: true, desktop: desktopInfo(), opts };
+    }
+    case 'desktop.syncRules':
+      return syncRulesFromDesktop();
     case 'profile.switch':
       return { ok: true, opts: await switchProfile(message.name) };
     case 'options.save':

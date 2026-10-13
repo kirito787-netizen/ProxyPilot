@@ -32,6 +32,10 @@ let currentOptions = null;
 let isQuitting = false;
 let systemProxyBackup = null;
 let proxyError = null;
+// Latest snapshot announced by the browser extension (see /proxypilot.extension).
+let extensionSnapshot = null;
+// Heartbeats arrive roughly once a minute; a bit of slack avoids flicker.
+const EXTENSION_FRESH_MS = 90 * 1000;
 
 app.setName('ProxyPilot');
 app.commandLine.appendSwitch('disable-gpu');
@@ -47,6 +51,19 @@ const optionsPath = () => path.join(app.getPath('userData'), 'options.json');
 const backupPath = () => path.join(app.getPath('userData'), BACKUP_FILE);
 const statsPath = () => path.join(app.getPath('userData'), 'stats.json');
 let currentStats = null;
+
+function readBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    request.on('error', reject);
+  });
+}
+
+function extensionSnapshotFresh() {
+  return !!(extensionSnapshot && (Date.now() - extensionSnapshot.at) < EXTENSION_FRESH_MS);
+}
 
 // Desktop statistics: only profile switches and active time are feasible
 // here — system-level PAC means browser traffic never crosses this process.
@@ -326,6 +343,30 @@ async function handleMessage(message) {
     case 'proxy.apply': await applyProfile(opts.activeProfile, opts); return { ok: true };
     case 'control.level': return { ok: true, levelOfControl: proxyError ? 'not_controllable' : 'controlled_by_this_app' };
     case 'tab.findHost': return { ok: true, host: await findVisibleTabHost() };
+    case 'extension.check':
+      return {
+        ok: true,
+        active: extensionSnapshotFresh(),
+        at: extensionSnapshot ? extensionSnapshot.at : 0,
+        profiles: extensionSnapshotFresh() ? extensionSnapshot.profiles : null,
+        activeProfile: extensionSnapshotFresh() ? extensionSnapshot.activeProfile : null,
+      };
+    case 'extension.syncRules': {
+      if (!extensionSnapshotFresh()) return { ok: false, error: '扩展版不在线，无法同步' };
+      const previous = clone(currentOptions || await loadOptions());
+      const next = clone(previous);
+      next.profiles = clone(extensionSnapshot.profiles);
+      if (!next.profiles[next.activeProfile]) next.activeProfile = BUILTIN.DIRECT;
+      await applyProfile(next.activeProfile, next);
+      try {
+        const saved = await saveOptions(next);
+        buildTrayMenuAndSet();
+        return { ok: true, opts: saved, imported: Object.keys(next.profiles).length };
+      } catch (error) {
+        try { await applyProfile(previous.activeProfile, previous); } catch (_) {}
+        throw error;
+      }
+    }
     case 'stats.get': return { ok: true, stats: currentStats || await loadStats() };
     case 'stats.reset': {
       currentStats = resetStats(currentStats || await loadStats());
@@ -436,7 +477,7 @@ function createTray() {
 function startPacServer() {
   return new Promise((resolve, reject) => {
     const listen = (port, canFallback) => {
-      pacServer = createServer((request, response) => {
+      pacServer = createServer(async (request, response) => {
         const route = (request.url || '').split('?')[0];
         if (route === '/proxypilot.pac') {
           response.writeHead(200, { 'Content-Type': 'application/x-ns-proxy-autoconfig; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
@@ -455,6 +496,32 @@ function startPacServer() {
             profileName: profile ? (profile.name || active) : null,
             pacUrl: pacUrl,
           }));
+          return;
+        }
+        // Rule export: lets the browser extension pull this app's profiles in.
+        if (route === '/proxypilot.rules') {
+          response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store, no-cache, must-revalidate' });
+          response.end(JSON.stringify({
+            app: 'ProxyPilot',
+            state: 1,
+            profiles: (currentOptions && currentOptions.profiles) || {},
+            activeProfile: currentOptions ? currentOptions.activeProfile : null,
+          }));
+          return;
+        }
+        // Heartbeat from the extension: carries its current profiles so the
+        // desktop UI can offer to sync them in while both are running.
+        if (route === '/proxypilot.extension' && request.method === 'POST') {
+          try {
+            const data = JSON.parse(await readBody(request));
+            if (!data || data.app !== 'ProxyPilot-extension' || !data.profiles || typeof data.profiles !== 'object' || Array.isArray(data.profiles)) throw new Error('无效的心跳数据');
+            extensionSnapshot = { profiles: data.profiles, activeProfile: data.activeProfile || null, at: Date.now() };
+            response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+            response.end(JSON.stringify({ ok: true }));
+          } catch (error) {
+            response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+            response.end(JSON.stringify({ ok: false, error: String((error && error.message) || error) }));
+          }
           return;
         }
         response.writeHead(404); response.end('Not found');

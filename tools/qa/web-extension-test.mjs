@@ -280,9 +280,43 @@ globalThis.fetch = realFetch;
 // ---- desktop handoff: the extension must yield to the desktop app ----
 
 const { createServer } = await import('node:http');
-const desktopServer = createServer((_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ app: 'ProxyPilot', state: 1, activeProfile: '自动切换', profileName: '自动切换' }));
+const desktopHeartbeats = [];
+const desktopServer = createServer(async (req, res) => {
+  const route = (req.url || '').split('?')[0];
+  if (route === '/proxypilot.state') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ app: 'ProxyPilot', state: 1, activeProfile: '自动切换', profileName: '自动切换' }));
+    return;
+  }
+  if (route === '/proxypilot.rules') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      app: 'ProxyPilot',
+      state: 1,
+      activeProfile: '自动切换',
+      profiles: {
+        '桌面专用': {
+          name: '桌面专用', type: 'fixed', color: '#8b5cf6',
+          fallbackProxy: { scheme: 'http', host: '127.0.0.1', port: 7897, auth: null },
+          bypassList: ['127.0.0.1', '::1', 'localhost', '<local>'],
+        },
+        '自动切换': {
+          name: '自动切换', type: 'auto', color: '#10b981', defaultProfileName: 'direct',
+          rules: [{ condition: { type: 'host-wildcard', pattern: '*.desktop-test.local' }, profileName: '桌面专用' }],
+        },
+      },
+    }));
+    return;
+  }
+  if (route === '/proxypilot.extension' && req.method === 'POST') {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    desktopHeartbeats.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+  res.writeHead(404); res.end('Not found');
 });
 await new Promise((resolve) => desktopServer.listen(17998, '127.0.0.1', resolve));
 
@@ -292,13 +326,23 @@ assert(stub.proxyValue() === null, 'extension yields chrome.proxy control while 
 assert(stub.badge.texts.at(-1) === 'DT', 'badge shows DT in desktop mode');
 const desktopState = await dispatch({ type: 'state.get' });
 assert(desktopState.desktop && desktopState.desktop.active && desktopState.desktop.profileName === '自动切换', 'state.get reports desktop takeover');
+assert(desktopHeartbeats.length >= 1 && desktopHeartbeats.at(-1).app === 'ProxyPilot-extension', 'extension heartbeats its profiles to the desktop app');
+
+const synced = await dispatch({ type: 'desktop.syncRules' });
+assert(synced.ok && synced.imported === 2, 'desktop.syncRules imports desktop profiles');
+assert(synced.opts.profiles['桌面专用'] && synced.opts.profiles['桌面专用'].fallbackProxy.port === 7897, 'imported profile stored');
+assert(stub.proxyValue() === null, 'extension stays yielded after the rules sync');
+assert(stub.badge.texts.at(-1) === 'DT', 'badge stays DT after the rules sync');
+assert(!!(desktopHeartbeats.at(-1).profiles || {})['桌面专用'], 'synced rules are heartbeated back to the desktop app');
 
 desktopServer.close();
 await new Promise((resolve) => setTimeout(resolve, 50));
+const offlineSync = await dispatch({ type: 'desktop.syncRules' });
+assert(!offlineSync.ok && offlineSync.error === 'desktop-offline', 'desktop.syncRules refuses while the desktop app is offline');
 const resumed = await dispatch({ type: 'desktop.check' });
 assert(resumed.ok && !resumed.desktop.active, 'desktop.check notices the desktop app leaving');
 assert(stub.proxyValue() && stub.proxyValue().mode === 'pac_script', 'extension re-applies its profile after the desktop app exits');
-assert(stub.badge.texts.at(-1) === '自动', 'badge returns to the profile name');
+assert(stub.badge.texts.at(-1) === '自动', 'badge returns to the active profile name');
 
 // ---- related host detection ----
 

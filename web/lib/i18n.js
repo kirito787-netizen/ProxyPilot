@@ -132,6 +132,12 @@ const zh = {
   'site.relatedApply': '添加勾选',
   'site.relatedEmpty': '本页暂未发现其他域名',
   'site.relatedTarget': '关联规则目标',
+  'sync.fromDesktop': '从桌面版同步规则',
+  'sync.fromExtension': '同步扩展版规则',
+  'sync.extensionActive': '检测到浏览器扩展正在运行',
+  'sync.done': '已同步 {n} 个情景',
+  'sync.failed': '同步失败',
+  'sync.desktopOffline': '桌面版不在线，无法同步',
 };
 
 const en = {
@@ -268,6 +274,12 @@ const en = {
   'site.relatedApply': 'Add checked',
   'site.relatedEmpty': 'No other hosts observed on this page yet',
   'site.relatedTarget': 'Related rules target',
+  'sync.fromDesktop': 'Sync rules from desktop',
+  'sync.fromExtension': 'Sync extension rules',
+  'sync.extensionActive': 'Browser extension detected',
+  'sync.done': 'Synced {n} profiles',
+  'sync.failed': 'Sync failed',
+  'sync.desktopOffline': 'Desktop app is not reachable',
 };
 
 export function createTranslator(lang) {

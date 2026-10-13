@@ -16,6 +16,8 @@ let siteTimer = null;
 let siteHostValue = '';
 let siteAutoHost = null;
 let siteUserEdited = false;
+let extensionTimer = null;
+let extensionState = null;
 
 function call(type, extra = {}) {
   return api.call({ type, ...extra });
@@ -60,10 +62,45 @@ async function switchTo(name) {
   }
 }
 
+async function syncFromExtension() {
+  const response = await call(Message.EXTENSION_SYNC);
+  if (response?.ok) {
+    state.opts = response.opts;
+    extensionState = { active: true };
+    render();
+    setStatus('ok', t('sync.done', { n: response.imported }));
+  } else {
+    setStatus('bad', (response && response.error) || t('sync.failed'));
+  }
+}
+
+// ---- extension presence: the desktop offers to pull extension rules in ----
+async function pollExtension() {
+  if (document.hidden) return;
+  const response = await call(Message.EXTENSION_CHECK);
+  if (!response?.ok) return;
+  const active = !!response.active;
+  if (!extensionState || extensionState.active !== active) {
+    extensionState = { active };
+    if (page === 'home') render();
+  }
+}
+
+function startExtensionPolling() {
+  const tick = () => { pollExtension().catch(() => {}); };
+  tick();
+  extensionTimer = setInterval(tick, 5000);
+}
+
+function stopExtensionPolling() {
+  if (extensionTimer) { clearInterval(extensionTimer); extensionTimer = null; }
+}
+
 function goPage(next) { page = next; render(); }
 
 function render() {
   stopSitePolling();
+  stopExtensionPolling();
   const options = state.opts;
   const lang = options.settings?.lang || 'zh';
   t = createTranslator(lang);
@@ -84,6 +121,7 @@ function render() {
     startSitePolling();
     updateSiteBlock();
   }
+  if (page === 'home') startExtensionPolling();
 
   if (page === 'home') renderHomeSummary(content);
   renderCmdBar();
@@ -113,6 +151,12 @@ function pageHome() {
       h('span', { class: 'summary' }, summarizeProfile(options.activeProfile, options, t)),
     ),
   );
+  if (extensionState && extensionState.active) {
+    frag.append(h('div', { class: 'toolbar' },
+      h('span', { class: 'summary', style: 'flex:1;align-self:center;' }, t('sync.extensionActive')),
+      h('button', { class: 'btn', onclick: syncFromExtension }, t('sync.fromExtension')),
+    ));
+  }
   if (isAutoContext()) {
     frag.append(buildSiteBlock(options));
   } else if (Object.values(options.profiles).some((profile) => profile.type === PROFILE_TYPE.AUTO)) {

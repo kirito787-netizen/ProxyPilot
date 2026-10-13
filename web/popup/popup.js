@@ -62,6 +62,18 @@ async function switchTo(name) {
   }
 }
 
+async function syncFromDesktop() {
+  const response = await call(Message.DESKTOP_SYNC);
+  if (response?.ok) {
+    state.opts = response.opts;
+    state.desktop = response.desktop;
+    render();
+    setStatus('ok', t('sync.done', { n: response.imported }));
+  } else {
+    setStatus('bad', (response && response.error === 'desktop-offline') ? t('sync.desktopOffline') : t('sync.failed'));
+  }
+}
+
 function goPage(next) { page = next; render(); }
 
 function render() {
@@ -107,6 +119,8 @@ function pageHome() {
   const frag = document.createDocumentFragment();
   if (state.desktop && state.desktop.active) {
     frag.append(h('div', { class: 'hint-line' }, t('desktop.takeover')));
+    frag.append(h('div', { class: 'toolbar', style: 'justify-content:center;' },
+      h('button', { class: 'btn', onclick: syncFromDesktop }, t('sync.fromDesktop'))));
   }
   frag.append(
     h('section', { class: 'current' },

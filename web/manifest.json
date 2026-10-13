@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ProxyPilot",
   "short_name": "ProxyPilot",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Per-domain proxy switching: fixed servers, PAC scripts and auto-switch rules, right in your browser.",
   "minimum_chrome_version": "108",
   "icons": {
