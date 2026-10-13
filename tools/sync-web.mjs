@@ -17,6 +17,7 @@ const pairs = [
   ['app/site.js', 'web/lib/site.js'],
   ['app/i18n.js', 'web/lib/i18n.js'],
   ['app/stats.js', 'web/lib/stats.js'],
+  ['app/subs.js', 'web/lib/subs.js'],
 ];
 
 let changed = 0;

@@ -4,6 +4,7 @@ import { BUILTIN, PROFILE_TYPE, Message } from './model.js';
 import { generateAutoPac } from './pac.js';
 import { normalizeHost, hostMatches } from './site.js';
 import { dailyTotals, dayKey, formatDuration, topEntries } from './stats.js';
+import { SUBS_DEFAULT_INTERVAL, formatBytes, subIntervalMinutes } from './subs.js';
 
 let state = null;
 let t = createTranslator('zh');
@@ -75,7 +76,7 @@ function render() {
   if (page === 'servers') content.append(pageServers());
   else if (page === 'rules') content.append(pageRules());
   else if (page === 'pac') content.append(pagePac());
-  else if (page === 'subs') content.append(pagePlaceholder(page));
+  else if (page === 'subs') { content.append(pageSubsHead()); renderSubsPage(content); }
   else if (page === 'stats') { content.append(pageStatsHead()); renderStatsPage(content); }
   else content.append(pageHome());
 
@@ -370,6 +371,120 @@ async function renderHomeSummary(container) {
   const activeMs = Object.values(today.activeMs || {}).reduce((sum, ms) => sum + ms, 0);
   container.append(h('div', { class: 'summary', style: 'text-align:center;' },
     t('stats.homeSummaryDesktop').replace('{s}', String(switchTotal)).replace('{t}', formatDuration(activeMs))));
+}
+
+// ---- subscriptions ----
+let subsFormOpen = false;
+
+function pageSubsHead() {
+  return h('div', { style: 'display:flex;align-items:center;gap:8px;' },
+    h('strong', { class: 'section-title', style: 'flex:1;' }, t('subs.title')),
+    h('button', { class: 'icon-btn', onclick: () => { subsFormOpen = !subsFormOpen; render(); } }, subsFormOpen ? '×' : '+'),
+  );
+}
+
+function fmtSubTime(ms) {
+  if (!ms) return '—';
+  const date = new Date(ms);
+  if (date.toDateString() === new Date().toDateString()) return date.toTimeString().slice(0, 5);
+  return date.toISOString().slice(5, 10);
+}
+
+function renderSubsPage(container) {
+  const subs = state.opts.subscriptions || [];
+  if (subsFormOpen) container.append(subsAddForm());
+  if (!subs.length) {
+    container.append(pagePlaceholder('subs'));
+    return;
+  }
+  for (const sub of subs) {
+    const card = h('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:6px;' });
+    card.append(h('div', { class: 'current-row' },
+      h('strong', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, sub.name || sub.url),
+      h('span', { class: 'summary' }, sub.kind === 'config' ? t('subs.kindConfig') : t('subs.kindPac')),
+    ));
+    card.append(h('div', { class: 'summary', style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, sub.url));
+    const line = [t('subs.lastUpdate') + ': ' + fmtSubTime(sub.updatedAt)];
+    if (sub.autoUpdate !== false) line.push(t('subs.nextUpdate') + ': ' + fmtSubTime((sub.updatedAt || 0) + subIntervalMinutes(sub) * 60000));
+    if (sub.lastError) line.push(t('subs.lastError') + ': ' + sub.lastError);
+    card.append(h('div', { class: 'summary' }, line.join(' · ')));
+    if (sub.extra) {
+      const parts = [];
+      if (sub.extra.upload || sub.extra.download) parts.push(t('subs.upload') + ' ' + formatBytes(sub.extra.upload) + ' / ' + t('subs.download') + ' ' + formatBytes(sub.extra.download));
+      if (sub.extra.total) parts.push(t('subs.total') + ' ' + formatBytes(sub.extra.total));
+      if (sub.extra.expire) parts.push(t('subs.expire') + ' ' + new Date(sub.extra.expire * 1000).toISOString().slice(0, 10));
+      if (parts.length) card.append(h('div', { class: 'summary' }, parts.join(' · ')));
+    }
+    card.append(h('div', { class: 'current-row' },
+      h('button', { class: 'icon-btn', onclick: () => refreshSub(sub.id) }, t('subs.refresh')),
+      h('button', { class: 'icon-btn', style: 'margin-left:auto;', onclick: () => removeSub(sub.id) }, t('subs.remove')),
+    ));
+    container.append(card);
+  }
+}
+
+function subsAddForm() {
+  const pacProfiles = Object.values(state.opts.profiles || {}).filter((profile) => profile.type === PROFILE_TYPE.PAC);
+  const nameInput = h('input', { placeholder: t('subs.name') });
+  const urlInput = h('input', { placeholder: t('subs.url') });
+  const targetSelect = h('select', {},
+    ...pacProfiles.map((profile) => h('option', { value: profile.name }, profile.name)));
+  const targetWrap = h('label', { class: 'field' }, t('subs.targetProfile'), targetSelect);
+  const kindSelect = h('select', {
+    onchange: () => { targetWrap.style.display = kindSelect.value === 'pac' ? '' : 'none'; },
+  },
+  h('option', { value: 'pac' }, t('subs.kindPac')),
+  h('option', { value: 'config' }, t('subs.kindConfig')),
+  );
+  const autoCheck = h('input', { type: 'checkbox' });
+  autoCheck.checked = true;
+  const intervalInput = h('input', { type: 'number', min: '0', placeholder: String(SUBS_DEFAULT_INTERVAL) });
+  const form = h('div', { class: 'card', style: 'display:flex;flex-direction:column;gap:8px;' },
+    nameInput, urlInput,
+    h('label', { class: 'field' }, t('subs.kind'), kindSelect),
+    targetWrap,
+    h('label', { class: 'field', style: 'flex-direction:row;align-items:center;gap:6px;' }, autoCheck, t('subs.autoUpdate')),
+    h('label', { class: 'field' }, t('subs.interval'), intervalInput),
+    h('button', { class: 'btn', onclick: () => submitSub() }, t('subs.add')),
+  );
+  return form;
+
+  async function submitSub() {
+    const response = await call(Message.SUBS_ADD, {
+      name: nameInput.value,
+      url: urlInput.value,
+      kind: kindSelect.value,
+      targetProfile: targetSelect.value,
+      autoUpdate: autoCheck.checked,
+      updateInterval: Number(intervalInput.value) || 0,
+    });
+    if (!response || !response.ok) {
+      setStatus('bad', (response && response.error) || t('subs.invalidUrl'));
+      return;
+    }
+    subsFormOpen = false;
+    state.opts = response.opts || state.opts;
+    render();
+  }
+}
+
+async function refreshSub(id) {
+  const response = await call(Message.SUBS_REFRESH, { id });
+  if (response && response.ok) {
+    state.opts = response.opts || state.opts;
+    render();
+  } else {
+    setStatus('bad', (response && response.error) || t('status.error'));
+  }
+}
+
+async function removeSub(id) {
+  if (!window.confirm(t('subs.confirmRemove'))) return;
+  const response = await call(Message.SUBS_REMOVE, { id });
+  if (response && response.ok) {
+    state.opts = response.opts || state.opts;
+    render();
+  }
 }
 
 // ---- current-site quick routing ----

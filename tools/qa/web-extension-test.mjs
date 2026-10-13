@@ -77,6 +77,10 @@ function makeChromeStub() {
         addListener: (fn, _filter) => { registered.completed = fn; },
       },
     },
+    alarms: {
+      create: (name, _info) => { registered.alarm = name; },
+      onAlarm: { addListener: (fn) => { registered.alarmListener = fn; } },
+    },
   };
   return { chrome, storage, registered, badge, proxyValue: () => proxyValue };
 }
@@ -204,6 +208,68 @@ assert((autoDay.ruleHits || {})['自动切换|host-wildcard|*.google.com'] === 1
 const statsReset = await dispatch({ type: 'stats.reset' });
 assert(statsReset.ok && Object.keys(statsReset.stats.days).length === 0, 'stats reset clears history');
 assert(statsReset.stats.active && statsReset.stats.active.name === '自动切换', 'stats reset keeps tracking the active profile');
+
+// ---- subscriptions ----
+
+// A PAC profile must exist as the subscription target.
+const beforeSubs = await dispatch({ type: 'state.get' });
+const withPac = await dispatch({
+  type: 'options.save',
+  opts: { ...beforeSubs.opts, profiles: { ...beforeSubs.opts.profiles, 订阅PAC: { name: '订阅PAC', type: 'pac', color: '#8b5cf6', pacUrl: '', pacScript: '' } } },
+});
+assert(withPac.ok, 'PAC target profile saved for subscription tests');
+
+// Fetch override emulates a subscription server with traffic metadata.
+const realFetch = globalThis.fetch;
+let subBody = 'function FindProxyForURL(url, host) { return "PROXY 127.0.0.1:7890"; }';
+globalThis.fetch = async () => ({
+  ok: true,
+  status: 200,
+  headers: {
+    get: (name) => (String(name).toLowerCase() === 'profile-update-interval' ? '12' : null),
+    entries: function* () { yield ['Subscription-UserInfo', 'upload=1048576; download=2097152; total=1073741824; expire=4102444800']; },
+  },
+  text: async () => subBody,
+});
+
+const added = await dispatch({
+  type: 'subs.add',
+  name: '我的订阅',
+  url: 'https://sub.example.com/pac',
+  kind: 'pac',
+  targetProfile: '订阅PAC',
+  autoUpdate: true,
+  updateInterval: 0,
+});
+assert(added.ok && (added.subscriptions || []).length === 1, 'subscription added after validation');
+const subEntry = added.subscriptions[0];
+assert(subEntry.name === '我的订阅' && subEntry.updatedAt > 0, 'subscription stamped with update time');
+assert(subEntry.serverInterval === 720, 'server-suggested interval adopted');
+assert(subEntry.extra && subEntry.extra.total === 1073741824, 'traffic info parsed from userinfo header');
+const pacState = await dispatch({ type: 'state.get' });
+assert((pacState.opts.profiles['订阅PAC'].pacScript || '').includes('FindProxyForURL'), 'PAC script fed into target profile');
+
+subBody = 'this is not a pac script';
+const rejected = await dispatch({
+  type: 'subs.add',
+  url: 'https://sub.example.com/other',
+  kind: 'pac',
+  targetProfile: '订阅PAC',
+});
+assert(!rejected.ok && (rejected.subscriptions || []).length === 1, 'invalid content rejects add and rolls back');
+
+subBody = 'function FindProxyForURL(url, host) { return "PROXY 127.0.0.1:7891"; }';
+const refreshed = await dispatch({ type: 'subs.refresh', id: subEntry.id });
+assert(refreshed.ok && refreshed.changed === true, 'subscription refresh applies new content');
+const refreshedState = await dispatch({ type: 'state.get' });
+assert((refreshedState.opts.profiles['订阅PAC'].pacScript || '').includes('7891'), 'refreshed PAC script stored');
+
+const badUrl = await dispatch({ type: 'subs.add', url: 'not-a-url', kind: 'pac', targetProfile: '订阅PAC' });
+assert(!badUrl.ok, 'invalid subscription URL rejected');
+
+const removed = await dispatch({ type: 'subs.remove', id: subEntry.id });
+assert(removed.ok && removed.subscriptions.length === 0, 'subscription removed');
+globalThis.fetch = realFetch;
 
 // Unknown message types are rejected cleanly.
 const unknown = await dispatch({ type: 'nope' });

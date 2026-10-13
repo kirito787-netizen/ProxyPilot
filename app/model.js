@@ -55,6 +55,10 @@ export const Message = {
   CONTROL: 'control.level',
   STATS_GET: 'stats.get',
   STATS_RESET: 'stats.reset',
+  SUBS_LIST: 'subs.list',
+  SUBS_ADD: 'subs.add',
+  SUBS_REMOVE: 'subs.remove',
+  SUBS_REFRESH: 'subs.refresh',
 };
 
 export function freshProfile(name, type, existing = {}) {
@@ -82,5 +86,6 @@ export function initialOptions() {
     activeProfile: BUILTIN.DIRECT,
     settings: { theme: 'dark', lang: 'zh', startupProfile: '' },
     profiles: { 代理服务器: proxy, 自动切换: auto },
+    subscriptions: [],
   };
 }

@@ -31,6 +31,7 @@ ProxyPilot 的浏览器扩展版本（Chrome / Edge 等 Chromium 内核浏览器
 ## 权限说明
 
 - proxy / storage — 应用情景与保存配置
+- alarms — 定时拉取订阅更新（浏览器重启后闹钟仍在）
 - tabs — 读取当前标签页域名，用于「当前站点快速分流」
 - webRequest + webRequestAuthProvider — 代理服务器要求认证时自动提交凭据
 - host_permissions (<all_urls>) — MV3 规定 webRequest 事件只对已声明 host 权限的 URL 派发；代理认证 challenge 可能出现在任意网址上，因此需要全站权限

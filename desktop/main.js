@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { BUILTIN, PROFILE_TYPE, SCHEMA_VERSION, STORAGE_KEY, initialOptions, normalizeOptions } from '../app/model.js';
 import { emptyStats, markActive, pruneStats, resetStats } from '../app/stats.js';
+import { blankSubscription, fetchSubscription, isSubDue } from '../app/subs.js';
 import { buildSystemPac } from '../app/pac.js';
 import { findVisibleTabHost } from './tabs.js';
 app.disableHardwareAcceleration();
@@ -73,6 +74,80 @@ function markProxyActive(name) {
   saveStats().catch((error) => console.error('Failed to save stats:', error));
 }
 
+// ---- subscriptions ----
+
+const subsDir = () => path.join(app.getPath('userData'), 'subscriptions');
+let subsTimer = null;
+
+async function readSubCache(id) {
+  try {
+    return JSON.parse(await readFile(path.join(subsDir(), id + '.json'), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+async function writeSubCache(id, entry) {
+  await mkdir(subsDir(), { recursive: true });
+  await writeFile(path.join(subsDir(), id + '.json'), JSON.stringify(entry, null, 2), 'utf8');
+}
+
+async function removeSubCache(id) {
+  try { await unlink(path.join(subsDir(), id + '.json')); } catch (_) { /* already gone */ }
+}
+
+// Apply fetched content: PAC feeds the target profile's script, config sync
+// replaces the profiles table (local settings and theme are kept).
+async function applySubscriptionContent(opts, sub, content) {
+  if (sub.kind === 'pac') {
+    const profile = opts.profiles[sub.targetProfile];
+    if (!profile || profile.type !== PROFILE_TYPE.PAC) throw new Error('目标情景不存在或不是 PAC 情景');
+    profile.pacScript = content;
+    return;
+  }
+  const incoming = JSON.parse(content);
+  opts.profiles = incoming.profiles;
+  if (!opts.profiles[opts.activeProfile]) opts.activeProfile = BUILTIN.DIRECT;
+}
+
+async function refreshSubscription(opts, sub, now = Date.now()) {
+  const result = await fetchSubscription(sub, null, now);
+  sub.updatedAt = result.state.updatedAt;
+  sub.lastError = result.state.lastError;
+  sub.extra = result.state.extra || null;
+  if (result.state.serverInterval) sub.serverInterval = result.state.serverInterval;
+  if (!result.ok) {
+    await saveOptions(opts);
+    return { ok: false, error: result.error };
+  }
+  const cached = await readSubCache(sub.id);
+  if (cached && cached.content === result.content) {
+    await saveOptions(opts);
+    return { ok: true, changed: false };
+  }
+  await writeSubCache(sub.id, { content: result.content, updatedAt: now });
+  await applySubscriptionContent(opts, sub, result.content);
+  await saveOptions(opts);
+  await applyProfile(opts.activeProfile, opts);
+  return { ok: true, changed: true };
+}
+
+async function refreshDueSubscriptions() {
+  const opts = clone(currentOptions || await loadOptions());
+  for (const sub of opts.subscriptions || []) {
+    if (!isSubDue(sub)) continue;
+    try { await refreshSubscription(opts, sub); }
+    catch (error) { console.error('Subscription refresh failed:', error); }
+  }
+}
+
+function startSubsTimer() {
+  if (subsTimer) return;
+  subsTimer = setInterval(() => {
+    refreshDueSubscriptions().catch((error) => console.error('Subscription timer failed:', error));
+  }, 60000);
+}
+
 async function loadOptions() {
   try {
     const parsed = normalizeOptions(JSON.parse(await readFile(optionsPath(), 'utf8')));
@@ -83,6 +158,7 @@ async function loadOptions() {
       settings: { ...defs.settings, ...(parsed.settings || {}) },
       profiles: parsed.profiles && typeof parsed.profiles === 'object' ? parsed.profiles : {},
       activeProfile: parsed.activeProfile || BUILTIN.DIRECT,
+      subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
     };
   } catch (_) {
     currentOptions = initialOptions();
@@ -256,6 +332,40 @@ async function handleMessage(message) {
       await saveStats();
       return { ok: true, stats: currentStats };
     }
+    case 'subs.list': return { ok: true, subscriptions: opts.subscriptions || [] };
+    case 'subs.add': {
+      const sub = blankSubscription(message);
+      if (!sub.url) return { ok: false, error: '无效的订阅链接，需要 http(s) 地址' };
+      if (sub.kind === 'pac') {
+        const profile = opts.profiles[sub.targetProfile];
+        if (!profile || profile.type !== PROFILE_TYPE.PAC) return { ok: false, error: '请选择一个 PAC 情景' };
+      }
+      sub.name = sub.name || (new URL(sub.url)).hostname;
+      opts.subscriptions = Array.isArray(opts.subscriptions) ? opts.subscriptions : [];
+      opts.subscriptions.push(sub);
+      const result = await refreshSubscription(opts, sub);
+      if (!result.ok) {
+        opts.subscriptions = opts.subscriptions.filter((item) => item.id !== sub.id);
+        await saveOptions(opts);
+        return { ok: false, error: result.error, subscriptions: opts.subscriptions };
+      }
+      return { ok: true, opts, subscriptions: opts.subscriptions };
+    }
+    case 'subs.remove': {
+      const before = (opts.subscriptions || []).length;
+      opts.subscriptions = (opts.subscriptions || []).filter((item) => item.id !== message.id);
+      if (opts.subscriptions.length === before) return { ok: false, error: '订阅不存在' };
+      await removeSubCache(message.id);
+      await saveOptions(opts);
+      return { ok: true, opts, subscriptions: opts.subscriptions };
+    }
+    case 'subs.refresh': {
+      const sub = (opts.subscriptions || []).find((item) => item.id === message.id);
+      if (!sub) return { ok: false, error: '订阅不存在' };
+      const result = await refreshSubscription(opts, sub);
+      if (!result.ok) return { ok: false, error: result.error, opts, subscriptions: opts.subscriptions };
+      return { ok: true, opts, subscriptions: opts.subscriptions, changed: result.changed };
+    }
     case 'rule.addQuick': {
       const auto = opts.profiles[message.autoProfileName];
       if (!auto || auto.type !== PROFILE_TYPE.AUTO) return { ok: false, error: '目标不是自动切换情景' };
@@ -386,6 +496,8 @@ if (isPrimaryInstance) app.whenReady().then(async () => {
   mainWindow.loadFile(path.join(__dirname, '..', 'app', 'main.html'));
   mainWindow.on('close', (event) => { if (!isQuitting) { event.preventDefault(); mainWindow.hide(); } });
   createTray();
+  startSubsTimer();
+  refreshDueSubscriptions().catch((error) => console.error('Subscription startup refresh failed:', error));
   try { await applyProfile(currentOptions.activeProfile, currentOptions); buildTrayMenuAndSet(); }
   catch (error) {
     proxyError = String(error && (error.message || error));

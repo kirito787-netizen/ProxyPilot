@@ -11,6 +11,7 @@ import { normalizeHost } from '../lib/site.js';
 import {
   STATS_KEY, classifyRoute, emptyStats, markActive, pruneStats, recordRequest, resetStats,
 } from '../lib/stats.js';
+import { SUBS_STORAGE_KEY, blankSubscription, fetchSubscription, isSubDue } from '../lib/subs.js';
 
 const REGULAR = { scope: 'regular' };
 const AUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
@@ -50,6 +51,7 @@ export async function loadOptions() {
     settings: { ...defs.settings, ...(raw.settings || {}) },
     profiles: raw.profiles,
     activeProfile: raw.activeProfile || BUILTIN.DIRECT,
+    subscriptions: Array.isArray(raw.subscriptions) ? raw.subscriptions : [],
   };
   if (!stored[STORAGE_KEY] && stored[LEGACY_STORAGE_KEY]) {
     // One-time move to the current storage key; drop the legacy entry.
@@ -322,6 +324,65 @@ async function findTabHost() {
 
 // ---- message hub ----
 
+// ---- subscriptions ----
+
+async function loadSubsCache() {
+  const stored = await chrome.storage.local.get(SUBS_STORAGE_KEY);
+  const parsed = stored && stored[SUBS_STORAGE_KEY];
+  return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+async function saveSubsCache(cache) {
+  await chrome.storage.local.set({ [SUBS_STORAGE_KEY]: cache });
+}
+
+// Apply fetched content: PAC feeds the target profile's script, config sync
+// replaces the profiles table (local settings are kept).
+async function applySubscriptionContent(opts, sub, content) {
+  if (sub.kind === 'pac') {
+    const profile = opts.profiles[sub.targetProfile];
+    if (!profile || profile.type !== PROFILE_TYPE.PAC) throw new Error('目标情景不存在或不是 PAC 情景');
+    profile.pacScript = content;
+    return;
+  }
+  const incoming = JSON.parse(content);
+  opts.profiles = incoming.profiles;
+  if (!opts.profiles[opts.activeProfile]) opts.activeProfile = BUILTIN.DIRECT;
+}
+
+async function refreshSubscription(opts, sub, now = Date.now()) {
+  const result = await fetchSubscription(sub, fetch, now);
+  sub.updatedAt = result.state.updatedAt;
+  sub.lastError = result.state.lastError;
+  sub.extra = result.state.extra || null;
+  if (result.state.serverInterval) sub.serverInterval = result.state.serverInterval;
+  if (!result.ok) {
+    await persistOptions(opts);
+    return { ok: false, error: result.error };
+  }
+  const cache = await loadSubsCache();
+  if (cache[sub.id] && cache[sub.id].content === result.content) {
+    await persistOptions(opts);
+    return { ok: true, changed: false };
+  }
+  cache[sub.id] = { content: result.content, updatedAt: now };
+  await saveSubsCache(cache);
+  await applySubscriptionContent(opts, sub, result.content);
+  await persistOptions(opts);
+  await applyProxy(opts.activeProfile, opts);
+  await updateBadge(opts);
+  return { ok: true, changed: true };
+}
+
+async function refreshDueSubscriptions() {
+  const opts = await loadOptions();
+  for (const sub of opts.subscriptions || []) {
+    if (!isSubDue(sub)) continue;
+    try { await refreshSubscription(opts, sub); }
+    catch (_) { /* keep going; the next alarm retries */ }
+  }
+}
+
 async function handleMessage(message) {
   const opts = await loadOptions();
   switch (message && message.type) {
@@ -373,6 +434,43 @@ async function handleMessage(message) {
       await flushStats();
       return { ok: true, stats: statsCache };
     }
+    case 'subs.list':
+      return { ok: true, subscriptions: opts.subscriptions || [] };
+    case 'subs.add': {
+      const sub = blankSubscription(message);
+      if (!sub.url) return { ok: false, error: '无效的订阅链接，需要 http(s) 地址' };
+      if (sub.kind === 'pac') {
+        const profile = opts.profiles[sub.targetProfile];
+        if (!profile || profile.type !== PROFILE_TYPE.PAC) return { ok: false, error: '请选择一个 PAC 情景' };
+      }
+      sub.name = sub.name || (new URL(sub.url)).hostname;
+      opts.subscriptions = Array.isArray(opts.subscriptions) ? opts.subscriptions : [];
+      opts.subscriptions.push(sub);
+      const result = await refreshSubscription(opts, sub);
+      if (!result.ok) {
+        opts.subscriptions = opts.subscriptions.filter((item) => item.id !== sub.id);
+        await persistOptions(opts);
+        return { ok: false, error: result.error, subscriptions: opts.subscriptions };
+      }
+      return { ok: true, opts, subscriptions: opts.subscriptions };
+    }
+    case 'subs.remove': {
+      const before = (opts.subscriptions || []).length;
+      opts.subscriptions = (opts.subscriptions || []).filter((item) => item.id !== message.id);
+      if (opts.subscriptions.length === before) return { ok: false, error: '订阅不存在' };
+      const cache = await loadSubsCache();
+      delete cache[message.id];
+      await saveSubsCache(cache);
+      await persistOptions(opts);
+      return { ok: true, opts, subscriptions: opts.subscriptions };
+    }
+    case 'subs.refresh': {
+      const sub = (opts.subscriptions || []).find((item) => item.id === message.id);
+      if (!sub) return { ok: false, error: '订阅不存在' };
+      const result = await refreshSubscription(opts, sub);
+      if (!result.ok) return { ok: false, error: result.error, opts, subscriptions: opts.subscriptions };
+      return { ok: true, opts, subscriptions: opts.subscriptions, changed: result.changed };
+    }
     default:
       return { ok: false, error: '未知消息类型：' + ((message && message.type) || '(none)') };
   }
@@ -417,6 +515,15 @@ chrome.webRequest.onCompleted.addListener(
   (details) => { recordObservedRequest(details); },
   { urls: ['http://*/*', 'https://*/*'] },
 );
+
+// Subscription auto-refresh: chrome.alarms survives worker shutdowns, and
+// the module-eval catch-up covers worker wake-ups between alarm fires.
+const SUBS_ALARM = 'proxypilot:subs-refresh';
+try { chrome.alarms.create(SUBS_ALARM, { periodInMinutes: 30 }); } catch (_) { /* unavailable in some test contexts */ }
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm && alarm.name === SUBS_ALARM) refreshDueSubscriptions().catch(() => { /* retried next alarm */ });
+});
+refreshDueSubscriptions().catch(() => { /* retried next alarm */ });
 
 // Apply the configured startup profile on install and browser start only, so
 // it does not fight later profile switches when the worker wakes up.
