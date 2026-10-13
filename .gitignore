@@ -1,9 +1,6 @@
 node_modules/
-.proxypilot-data/
 .pack-staging/
+.pack-slim/
 dist/
 *.log
-_metadata/
-fjlobaapeljdappiedcjjakionkjnopp/
 Screenshot/
-.edge-store.html
