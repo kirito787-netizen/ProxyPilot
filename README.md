@@ -55,6 +55,7 @@ npm run sync:web       # 将 app/ 共享逻辑同步到 web/lib/（test:web 会�
 
 - ProxyPilot 扩展 1.1.0 起支持自动让位：探测到桌面版运行（http://127.0.0.1:17777/proxypilot.state）时清除自己的代理设置，角标显示 DT，浏览器跟随桌面版系统 PAC；桌面版退出后一分钟内自动恢复接管
 - Chrome 里若还装着旧版 ProxyPilot 扩展或第三方代理扩展，请在 chrome://extensions 停用，或重新加载本仓库 web/ 的新版扩展
+- Edge 会周期性自动关闭「开发者加载」的扩展（提示「已关闭来自未知来源的扩展」）：在 `edge://extensions` 打开「开发人员模式」并重新启用 ProxyPilot，详见 [web/README.md](web/README.md)
 - 验证方法：Windows 设置中的代理应显示「使用设置脚本 http://127.0.0.1:17777/proxypilot.pac」，且 npm run test:system 通过
 
 ## 两版共存：优先级与规则同步
